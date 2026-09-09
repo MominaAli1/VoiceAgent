@@ -1,0 +1,29 @@
+{
+  "name": "voice-doc-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A real-time voice + document agent: a document you can talk to.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev:ws": "npx y-websocket --port 1234",
+    "dev:web": "vite",
+    "dev:agent": "node src/agent/index.js"
+  },
+  "dependencies": {
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-collaboration": "^3.31.3",
+    "@tiptap/extension-collaboration-caret": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "@tiptap/y-tiptap": "^3.0.9",
+    "ws": "^8.21.3",
+    "y-prosemirror": "^1.3.7",
+    "y-websocket": "^3.1.0",
+    "yjs": "^13.6.32"
+  },
+  "devDependencies": {
+    "@y/websocket-server": "^0.1.5",
+    "vite": "^8.2.2"
+  }
+}
