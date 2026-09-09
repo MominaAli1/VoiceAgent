@@ -96,6 +96,14 @@ If task 1.6 finds the installed extension's `field` default is not `"default"`,
 `FIELD` changes here once and both tracks pick it up. That is the only sanctioned
 change to this contract.
 
+**Addendum — `src/palette.js`.** Group 3 added a second shared module holding the
+participant colours: `USER_COLORS`, `ASSISTANT_COLOR` (`#12a594`, teal) and
+`randomUserColor()`. Rumaisa imports `ASSISTANT_COLOR` for task 6.2 rather than
+hard-coding a colour. Colours MUST be 6-digit hex — the caret extension validates
+with `/^#[0-9a-fA-F]{6}$/` and silently renders `transparent` for anything else,
+with no selection highlight and no error. This is additive; the pinned `config.js`
+exports are unchanged.
+
 **Status: landed and verified.** `src/config.js` is on `main` with exactly these
 values. Task 1.6 confirmed `field: "default"`, so nothing changed. The contract was
 smoke-tested end to end against the running relay — two Node clients, one room,
@@ -121,21 +129,38 @@ a `getXmlFragment(FIELD)` round-trip returning the written text, share keys
 
 ## 3. Momina — Browser editor
 
-- [ ] 3.1 Create the HTML page with the `#editor` element and a name/colour input for the local participant
-- [ ] 3.2 Create the browser entry point: a `Y.Doc` plus a `WebsocketProvider` using `WS_URL` and `ROOM` from config
-- [ ] 3.3 Mount Tiptap on `#editor` with `StarterKit.configure({ undoRedo: false })` — the installed v3.31.3 has no `history` key, so `history: false` would be silently ignored — then verify no ProseMirror history plugin is active by inspecting the editor's extension list (design D2)
-- [ ] 3.4 Add the `Collaboration` extension bound to the `Y.Doc` with `field: FIELD` passed explicitly rather than relying on the default (REQ-D1b)
-- [ ] 3.5 Add `CollaborationCaret` (from `@tiptap/extension-collaboration-caret`; the v2 `CollaborationCursor` does not exist on this line) with the provider and a local user `{ name, color }`, drawing colours from a small fixed palette that reserves one colour for the server participant
+- [x] 3.1 Create the HTML page with the `#editor` element and a name/colour input for the local participant
+- [x] 3.2 Create the browser entry point: a `Y.Doc` plus a `WebsocketProvider` using `WS_URL` and `ROOM` from config
+- [x] 3.3 Mount Tiptap on `#editor` with `StarterKit.configure({ undoRedo: false })` — the installed v3.31.3 has no `history` key, so `history: false` would be silently ignored — then verify no ProseMirror history plugin is active by inspecting the editor's extension list (design D2). A runtime guard logs `[D2 ok]` or `[D2 VIOLATION]` on boot; observed `[D2 ok]`
+- [x] 3.4 Add the `Collaboration` extension bound to the `Y.Doc` with `field: FIELD` passed explicitly rather than relying on the default (REQ-D1b)
+- [x] 3.5 Add `CollaborationCaret` (from `@tiptap/extension-collaboration-caret`; the v2 `CollaborationCursor` does not exist on this line) with the provider and a local user `{ name, color }`, drawing colours from a small fixed palette that reserves one colour for the server participant — palette lives in `src/palette.js`, see the addendum to the shared contract
 
 ## 4. Momina — Gate A (verifiable without any of Rumaisa's work)
 
 Run the relay and two browser tabs. No server participant involved.
 
-- [ ] 4.1 Text typed in either tab appears live in the other, with no refresh
-- [ ] 4.2 Each tab shows the other's caret labelled with their name, and their selection highlighted in their colour
-- [ ] 4.3 Closing one tab removes its cursor and selection markers from the other
-- [ ] 4.4 A tab opened against a document that already has content renders that content on load
-- [ ] 4.5 Undo in one tab reverts only that tab's own change, leaves the other tab's text intact, and leaves both tabs converged on identical content
+- [x] 4.1 Text typed in either tab appears live in the other, with no refresh — verified in two live tabs
+- [x] 4.2 Each tab shows the other's caret labelled with their name, and their selection highlighted in their colour — caret `.collaboration-carets__caret` labelled `Guest 592` with `borderColor rgb(48,164,108)`; selection span `rgba(48,164,108,0.44)` matching that participant's colour
+- [x] 4.3 Closing one tab removes its cursor and selection markers from the other — see the note below on why this needed an explicit `pagehide` handler
+- [x] 4.4 A tab opened against a document that already has content renders that content on load — a third tab rendered the existing two paragraphs immediately
+- [x] 4.5 Undo in one tab reverts only that tab's own change, leaves the other tab's text intact, and leaves both tabs converged on identical content — tab 1's undo dropped only its own paragraph; the other tab's paragraph and the shared base line survived, both tabs identical
+
+**Gate A passed.** Two notes from running it:
+
+*Presence withdrawal needed code we did not plan for.* `y-websocket` registers its
+awareness exit handler for Node only (`env.isNode && process.on('exit')`) and
+installs nothing in the browser, so a closed tab's caret and peer chip lingered on
+other clients for the full ~30s awareness timeout. `src/web/main.js` now withdraws
+presence on `pagehide`, which makes 4.3 immediate instead of eventual.
+
+*Concurrent editing was stress-tested beyond Gate A.* Two tabs each inserted
+single characters into the same paragraph at the same offset, 78 inserts
+interleaved. Both replicas converged on byte-identical text with no lost or
+duplicated characters. One earlier ad-hoc run, where both tabs typed into the same
+paragraph and one then undid, left a single character attributed to the wrong side
+(`"TAB TWO…undo."` came back as `"AB TWO…undo.T"`); both replicas agreed, so this
+is not divergence, but concurrent-insert-at-identical-offset followed by undo is
+worth a second look during Milestone A (9.6).
 
 ## 5. Rumaisa — Standalone verification harness
 
