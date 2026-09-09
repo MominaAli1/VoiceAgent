@@ -18,17 +18,32 @@ Binding for both tracks. Every one of these is a decision already made in
 design.md; none is open to preference during implementation.
 
 **Fixed dependency set.** Exactly these runtime packages, no others:
-`yjs`, `y-websocket`, `y-prosemirror`, `@tiptap/core`, `@tiptap/starter-kit`,
-`@tiptap/extension-collaboration`, `@tiptap/extension-collaboration-cursor`,
-`ws`. Dev dependencies: `vite` only. Do not add a framework (React, Vue,
-Svelte), a different transport (`socket.io`, raw `WebSocket` handling), a
-persistence provider (`y-indexeddb`, `y-leveldb`), a CSS framework, or a test
-runner. If a task seems to need a package that is not on this list, raise it
-rather than installing it.
+`yjs`, `y-websocket`, `y-prosemirror`, `@tiptap/core`, `@tiptap/pm`,
+`@tiptap/starter-kit`, `@tiptap/extension-collaboration`,
+`@tiptap/extension-collaboration-caret`, `@tiptap/y-tiptap`, `ws`.
+Dev dependencies: `vite` and `@y/websocket-server` only.
+
+This is the **Tiptap v3** line, and it differs from the brief's original list in
+three ways, all forced rather than chosen (design D7, D8):
+
+- `@tiptap/extension-collaboration-caret` replaces `@tiptap/extension-collaboration-cursor`.
+  The `-cursor` package never shipped for v3 — its `3.0.0` is deprecated as a
+  mispublish, so `latest` is `2.26.2` peering on `@tiptap/core@^2.7.0`, which
+  fails ERESOLVE against `extension-collaboration@3.31.3`.
+- `@tiptap/pm` and `@tiptap/y-tiptap` are added — both are declared peers of
+  `extension-collaboration@3.31.3`, not optional extras.
+- `@y/websocket-server` is added as a dev dependency to supply the relay binary.
+
+Do not add a framework (React, Vue, Svelte), a different transport
+(`socket.io`, raw `WebSocket` handling), a persistence provider (`y-indexeddb`,
+`y-leveldb`), a CSS framework, or a test runner. If a task seems to need a
+package that is not on this list, raise it rather than installing it.
 
 **No bespoke relay.** The websocket server is the stock upstream binary via
 `npx y-websocket` on port 1234. Do not write a relay, do not wrap one, do not
-fork one.
+fork one. `y-websocket@3` is client-only and ships no binary; the binary comes
+from the `@y/websocket-server` dev dependency, which registers a bin named
+`y-websocket` so the command works verbatim (design D8).
 
 **Never `ydoc.getText(FIELD)`.** The shared field holds a `Y.XmlFragment`.
 `getText()` on that key returns an empty string with no error, and then
@@ -44,11 +59,17 @@ snippets. Measured evidence is in design.md — D1.
 fragment level — that is invalid ProseMirror content.
 
 **ProseMirror history stays off.** `StarterKit` with the history plugin
-disabled; Yjs owns undo. Verify against the installed extension list, not the
-key name.
+disabled; Yjs owns undo. On the installed `@tiptap/starter-kit@3.31.3` the key
+is **`undoRedo: false`** — there is no `history` key at all, so the brief's
+literal `history: false` is silently ignored and leaves history enabled.
+Verify against the installed extension list, not the key name (design D2).
 
 **No literals for `ROOM`, `WS_URL`, `FIELD`.** One config module, imported by
 both sides.
+
+**`WS_URL` uses `localhost`, never `127.0.0.1`.** The relay binds the IPv6
+loopback only, so the IPv4 literal is refused with ECONNREFUSED. Measured, not
+assumed (design D9).
 
 **ESM throughout.** `"type": "module"` in the manifest; `import`, not
 `require`.
@@ -75,30 +96,36 @@ If task 1.6 finds the installed extension's `field` default is not `"default"`,
 `FIELD` changes here once and both tracks pick it up. That is the only sanctioned
 change to this contract.
 
+**Status: landed and verified.** `src/config.js` is on `main` with exactly these
+values. Task 1.6 confirmed `field: "default"`, so nothing changed. The contract was
+smoke-tested end to end against the running relay — two Node clients, one room,
+a `getXmlFragment(FIELD)` round-trip returning the written text, share keys
+`['default']`. Rumaisa can import it now.
+
 ---
 
 ## 1. Momina — Project setup (Phase 0)
 
-- [ ] 1.1 Run `npm init`, set `"type": "module"`, and add a `.gitignore` covering `node_modules/`, build output, and local env files
-- [ ] 1.2 Install the eight runtime packages listed under Tech stack restrictions — that exact set, nothing else
-- [ ] 1.3 Install `vite` as the only dev dependency (design D5)
-- [ ] 1.4 Add the three npm scripts named in the shared contract; `dev:ws` must delegate to `npx y-websocket` on port 1234
-- [ ] 1.5 Start the relay and confirm it reports listening on :1234 — **Phase 0 gate**
-- [ ] 1.6 Record the installed `@tiptap/extension-collaboration` version, confirm its default `field` value and that it binds via `getXmlFragment` (design D1); if the default is not `"default"`, update the shared contract and tell Rumaisa before she starts group 6
+- [x] 1.1 Run `npm init`, set `"type": "module"`, and add a `.gitignore` covering `node_modules/`, build output, and local env files
+- [x] 1.2 Install the runtime packages listed under Tech stack restrictions — that exact set, nothing else
+- [x] 1.3 Install `vite` (design D5) and `@y/websocket-server` (design D8) as the only dev dependencies
+- [x] 1.4 Add the three npm scripts named in the shared contract; `dev:ws` must delegate to `npx y-websocket` on port 1234
+- [x] 1.5 Start the relay and confirm it reports listening on :1234 — **Phase 0 gate** — PASSED: `running at 'localhost' on port 1234`, netstat shows `[::1]:1234 LISTENING`
+- [x] 1.6 Record the installed `@tiptap/extension-collaboration` version, confirm its default `field` value and that it binds via `getXmlFragment` (design D1) — CONFIRMED at 3.31.3: `field: "default"`, binds via `getXmlFragment`. `FIELD` unchanged, contract stands, no action needed from Rumaisa
 
 ## 2. Momina — Shared configuration
 
-- [ ] 2.1 Create `src/config.js` exporting `ROOM`, `WS_URL`, `FIELD` exactly as pinned in the shared contract, with a comment stating that `FIELD` must match the Collaboration extension's `field` option (design D3, REQ-D1b)
-- [ ] 2.2 Confirm no room name, websocket URL, or field name appears as a literal anywhere outside this module
-- [ ] 2.3 Commit and push `src/config.js` ahead of the rest of Track A — this is the handoff that unblocks Rumaisa's integration
+- [x] 2.1 Create `src/config.js` exporting `ROOM`, `WS_URL`, `FIELD` exactly as pinned in the shared contract, with a comment stating that `FIELD` must match the Collaboration extension's `field` option (design D3, REQ-D1b)
+- [x] 2.2 Confirm no room name, websocket URL, or field name appears as a literal anywhere outside this module — verified; the only `1234` outside the module is the relay CLI flag in `package.json`, which cannot import JS
+- [x] 2.3 Commit and push `src/config.js` ahead of the rest of Track A — this is the handoff that unblocks Rumaisa's integration
 
 ## 3. Momina — Browser editor
 
 - [ ] 3.1 Create the HTML page with the `#editor` element and a name/colour input for the local participant
 - [ ] 3.2 Create the browser entry point: a `Y.Doc` plus a `WebsocketProvider` using `WS_URL` and `ROOM` from config
-- [ ] 3.3 Mount Tiptap on `#editor` with `StarterKit` history disabled, and verify no ProseMirror history plugin is active by inspecting the editor's extension list — do not trust the key name alone (design D2)
+- [ ] 3.3 Mount Tiptap on `#editor` with `StarterKit.configure({ undoRedo: false })` — the installed v3.31.3 has no `history` key, so `history: false` would be silently ignored — then verify no ProseMirror history plugin is active by inspecting the editor's extension list (design D2)
 - [ ] 3.4 Add the `Collaboration` extension bound to the `Y.Doc` with `field: FIELD` passed explicitly rather than relying on the default (REQ-D1b)
-- [ ] 3.5 Add `CollaborationCursor` with the provider and a local user `{ name, color }`, drawing colours from a small fixed palette that reserves one colour for the server participant
+- [ ] 3.5 Add `CollaborationCaret` (from `@tiptap/extension-collaboration-caret`; the v2 `CollaborationCursor` does not exist on this line) with the provider and a local user `{ name, color }`, drawing colours from a small fixed palette that reserves one colour for the server participant
 
 ## 4. Momina — Gate A (verifiable without any of Rumaisa's work)
 

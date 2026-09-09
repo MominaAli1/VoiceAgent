@@ -4,7 +4,11 @@ See proposal.md — Why. The repository is empty apart from a LICENSE, so every 
 
 Two constraints shape the whole design. First, the brief's build order exists to isolate faults: the document layer must be provably correct before audio or an LLM is layered on, because a bug at this layer is otherwise indistinguishable from a bug in the agent path. Second, the brief's own risk table lists "Agent text never appears in editor — Y field name mismatch" as risk number one, and separately "Undo corrupts the document — disable ProseMirror's own history." Both are silent failures. Neither throws. Both are cheap to prevent now and expensive to diagnose later, which is why they appear below as hard requirements rather than notes.
 
-Versions this design was verified against: `@tiptap/extension-collaboration@3.31.3`, `yjs@13.6.32`, Node v24.18.1.
+Versions this design was verified against, as installed: `@tiptap/core`, `@tiptap/pm`,
+`@tiptap/starter-kit`, `@tiptap/extension-collaboration` and
+`@tiptap/extension-collaboration-caret` all at `3.31.3`; `@tiptap/y-tiptap@3.0.9`;
+`yjs@13.6.32`; `y-websocket@3.1.0`; `y-prosemirror@1.3.7`; `ws@8.21.3`;
+`@y/websocket-server@0.1.5` (dev); `vite@8.2.2` (dev); Node v24.18.1.
 
 ## Goals / Non-Goals
 
@@ -53,13 +57,24 @@ Verified correct behaviour of the required approach: `readDoc()` returns `"Hello
 
 *Alternative considered:* configure Tiptap with a Y.Text-backed field to honour the original instruction literally. Rejected — y-prosemirror's binding is defined over `Y.XmlFragment`; a `Y.Text` cannot express ProseMirror's block structure, so this would mean abandoning Tiptap's collaboration extension and hand-writing the binding. The instruction's intent (one field constant, mismatch made visible, first suspect for missing agent text) is fully preserved; only the accessor changes.
 
-### D2 — StarterKit runs with `history: false`
+### D2 — StarterKit runs with the history plugin disabled
 
-**REQ-D2.** The browser editor SHALL configure `StarterKit` with `history: false`, and undo/redo SHALL be provided by the Yjs layer instead.
+**REQ-D2.** The browser editor SHALL configure `StarterKit` so that no ProseMirror-native history plugin is active, and undo/redo SHALL be provided by the Yjs layer instead. On the installed version that means `undoRedo: false` — see the confirmation below.
 
 ProseMirror's history plugin keeps a local undo stack that is unaware of remote operations. Left enabled alongside Yjs it will revert other participants' changes and push the local replica out of convergence with its peers — the brief's "Undo corrupts the document" risk. Yjs owns undo: `UndoManager`, scoped to the local client's origin, so undo reverts only your own edits. This is not a preference; the two histories cannot coexist.
 
-*Note for implementation:* in Tiptap v3 the StarterKit key is `history: false`. If the installed StarterKit exposes the history plugin under a different key (the extension has been renamed to `undoRedo` in some versions), the correct key for the installed version MUST be used — the requirement is that no ProseMirror-native history plugin is active, not that a particular literal string appears. Verify by checking that the editor's active extension list contains no history plugin.
+*Confirmed against the installed `@tiptap/starter-kit@3.31.3`:* the option key is
+**`undoRedo`**, and there is **no `history` key at all**. `StarterKit.configure({ history: false })`
+would therefore be silently ignored and the UndoRedo extension would stay enabled — the exact
+corruption this decision exists to prevent, arriving with no error. The correct configuration is:
+
+```js
+StarterKit.configure({ undoRedo: false })
+```
+
+The requirement is that no ProseMirror-native history plugin is active, not that a particular
+literal string appears. Verify by inspecting the editor's active extension list, not by trusting
+the key name.
 
 ### D3 — One configuration module, imported by both sides
 
@@ -83,11 +98,65 @@ The Tiptap and Yjs packages are ESM npm modules, so the browser page needs a bun
 
 Relay (`:1234`) → Vite dev server (browser page) → server participant. The participant needs the relay up to connect. The browser tolerates the relay coming up late, since `WebsocketProvider` reconnects, but the README documents the strict order anyway so a first-time run does not depend on that tolerance.
 
+### D7 — Tiptap v3, with `collaboration-caret` in place of `collaboration-cursor`
+
+The brief's package list was written against Tiptap v2. `@tiptap/extension-collaboration-cursor`
+never shipped a real v3: its `3.0.0` is **deprecated** as a mispublish ("There are no breaking
+changes in this packages, we meant to release 2.5.0"), so its `latest` tag is `2.26.2`, peering on
+`@tiptap/core@^2.7.0`. That collides head-on with `@tiptap/extension-collaboration@3.31.3`, and
+`npm install` of the literal eight-package list fails with ERESOLVE.
+
+Resolved by building on the v3 line:
+
+- `@tiptap/extension-collaboration-caret` replaces `@tiptap/extension-collaboration-cursor`. Same
+  capability — named, coloured remote carets and selections — under the v3 name.
+- `@tiptap/pm` and `@tiptap/y-tiptap` are added. Neither is discretionary: both are declared peers
+  of `@tiptap/extension-collaboration@3.31.3`.
+- `y-prosemirror` stays on the dependency list per the brief, though Tiptap v3 binds through
+  `@tiptap/y-tiptap` rather than using it directly.
+
+*Alternative considered:* pin the whole Tiptap stack to `^2` so the brief's list holds literally.
+Resolves cleanly (65 packages) but builds the remaining fifteen-day plan on the previous major,
+and D1's evidence would need re-verifying against v2. Rejected in favour of the current line.
+
+### D8 — The relay binary comes from `@y/websocket-server`
+
+`npx y-websocket` is the command the change request specifies, but `y-websocket@3.1.0` is
+**client-only** — it declares no `bin` at all, and shipping only `dist/` and `src/`. Two dead ends
+were tried and rejected: `npx y-websocket` against the installed v3 fails with "could not determine
+executable to run", and `y-websocket-server@1.0.2` is a stub package whose entire behaviour is to
+print "this is incorrect, please use `npx y-websocket` instead" and exit 0 — a circular redirect.
+
+`@y/websocket-server@0.1.5` ("Backend for y-websocket") is the upstream server, and it registers
+bins under **both** `y-websocket-server` and `y-websocket`. Installed as a dev dependency, it makes
+the specified command work verbatim:
+
+```
+"dev:ws": "npx y-websocket --port 1234"
+```
+
+This honours the constraint's intent exactly — the relay is stock upstream, and we have not written,
+wrapped, or forked one.
+
+### D9 — `WS_URL` uses the hostname `localhost`, never `127.0.0.1`
+
+The relay binds the IPv6 loopback only. `netstat` shows `TCP [::1]:1234 LISTENING` and no IPv4
+listener, so an IPv4 literal is refused outright. Measured against the running relay:
+
+| URL | Result |
+| --- | --- |
+| `ws://127.0.0.1:1234` | **ECONNREFUSED** |
+| `ws://localhost:1234` | connects |
+| `ws://[::1]:1234` | connects |
+
+`WS_URL` is therefore `ws://localhost:1234`, with the reason recorded in `src/config.js` so nobody
+"helpfully" substitutes the IPv4 literal later.
+
 ## Risks / Trade-offs
 
 - **Field/accessor mismatch (`getText` vs `getXmlFragment`)** → The primary risk, and the reason for D1. Mitigated by the ban on `getText(FIELD)`, the shared `FIELD` constant (D3), and the post-sync share-key log (D4). First suspect if the agent's text never appears.
 - **A `getText(FIELD)` call anywhere poisons the `Y.Doc`** → Once made, the correct `getXmlFragment` call throws for the life of that `Y.Doc` instance, and the resulting error names a constructor conflict rather than the real mistake. Mitigated by D1a as an absolute rule; worth a grep before declaring the milestone met.
-- **StarterKit's history key differs across versions** → Setting a key the installed version ignores leaves ProseMirror history quietly enabled, which is exactly the corruption D2 exists to prevent. Mitigated by D2's note: verify against the installed extension list rather than trusting the literal key.
+- **StarterKit's history key differs across versions** → **Confirmed real, and resolved.** The installed `@tiptap/starter-kit@3.31.3` has no `history` key, so the brief's literal `history: false` would have been silently ignored and left ProseMirror history enabled. The key is `undoRedo`. Verify against the installed extension list, never the literal key (D2).
 - **No persistence; relay restart clears the document** → Accepted for this phase. Later phases start from a fixture document, and the brief's demo plan resets the fixture between runs anyway.
 - **Cursor colours could collide** → Cosmetic only. Pick from a small fixed palette and give the server participant a colour reserved for it.
 - **`readDoc()` drops formatting** → Deliberate. The brief's Day 4-6 contract is that Claude receives a plain-text view; anything richer is scope that phase does not want.
