@@ -13,12 +13,11 @@ export const ROOM = 'voice-doc-agent';
 /**
  * The y-websocket relay. Started by `npm run dev:ws`.
  *
- * Use the hostname `localhost`, not `127.0.0.1`. The relay binds the IPv6
- * loopback only (netstat shows `[::1]:1234`), so an IPv4 literal is refused
- * with ECONNREFUSED. Verified: `localhost` and `[::1]` connect, `127.0.0.1`
- * does not.
+ * The relay binds the IPv6 loopback only (`[::1]:1234`). The `ws` npm module
+ * resolves `localhost` to `127.0.0.1` (IPv4) on some systems, which causes
+ * ECONNREFUSED. Use the IPv6 literal `[::1]` to ensure a reliable connection.
  */
-export const WS_URL = 'ws://localhost:1234';
+export const WS_URL = 'ws://[::1]:1234';
 
 /**
  * The Yjs share key holding the document.
