@@ -152,6 +152,35 @@ listener, so an IPv4 literal is refused outright. Measured against the running r
 `WS_URL` is therefore `ws://localhost:1234`, with the reason recorded in `src/config.js` so nobody
 "helpfully" substitutes the IPv4 literal later.
 
+### D10 — The browser withdraws presence on `pagehide`
+
+`y-websocket@3.1.0` registers its awareness exit handler for Node only —
+`if (env.isNode && typeof process !== 'undefined') process.on('exit', this._exitHandler)` —
+and installs no `beforeunload` or `pagehide` listener in the browser. Observed
+consequence: a closed tab's caret and peer chip persisted on the other clients for the
+full awareness timeout (~30s measured), which fails the spec's "presence is withdrawn
+on disconnect" scenario in any practical sense.
+
+The browser entry point therefore calls `provider.awareness.setLocalState(null)` on
+`pagehide`. Withdrawal is then immediate, and reloads no longer leave a ghost peer.
+
+`pagehide` rather than `beforeunload`: it fires in cases `beforeunload` does not,
+including bfcache navigations and mobile Safari.
+
+### D11 — Colours are 6-digit hex, from a shared palette
+
+`@tiptap/extension-collaboration-caret` validates colours with
+`/^#[0-9a-fA-F]{6}$/` and falls back to `transparent` for anything that fails —
+a named colour or 3-digit hex yields an invisible caret and no selection
+highlight, with no warning. `src/palette.js` holds `USER_COLORS`,
+`ASSISTANT_COLOR` and `randomUserColor()`, shared by both sides so the server
+participant's reserved colour cannot collide with a human's.
+
+Participant identity is stored in `sessionStorage`, not `localStorage`:
+sessionStorage is per-tab, so a second tab is a second participant, which is what
+the two-tab test requires. `localStorage` would make both tabs the same person and
+quietly defeat the test.
+
 ## Risks / Trade-offs
 
 - **Field/accessor mismatch (`getText` vs `getXmlFragment`)** → The primary risk, and the reason for D1. Mitigated by the ban on `getText(FIELD)`, the shared `FIELD` constant (D3), and the post-sync share-key log (D4). First suspect if the agent's text never appears.

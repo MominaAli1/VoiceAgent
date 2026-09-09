@@ -1,0 +1,133 @@
+:root {
+  --bg: #fbfbfa;
+  --surface: #ffffff;
+  --border: #e4e4e2;
+  --text: #1c1c1a;
+  --muted: #75756e;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ---- top bar ---- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.identity { display: flex; align-items: center; gap: 8px; }
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+
+#name {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 4px 7px;
+  font: inherit;
+  font-weight: 600;
+  width: 13ch;
+  background: transparent;
+  color: inherit;
+}
+#name:hover { border-color: var(--border); }
+#name:focus { border-color: #0090ff; outline: none; background: var(--surface); }
+
+.peers {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.peer {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+}
+.peer .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+.status {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.status[data-state='connected']::before { content: '● '; color: #30a46c; }
+.status[data-state='connecting']::before { content: '● '; color: #f76b15; }
+.status[data-state='disconnected']::before { content: '● '; color: #e5484d; }
+
+/* ---- document ---- */
+
+main { padding: 40px 20px 25vh; }
+
+#editor {
+  max-width: 46rem;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 48px 56px;
+  min-height: 60vh;
+}
+
+.tiptap { outline: none; }
+.tiptap > * + * { margin-top: 0.85em; }
+.tiptap h1 { font-size: 1.8em; line-height: 1.25; }
+.tiptap h2 { font-size: 1.4em; line-height: 1.3; }
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* ---- remote carets (collaboration-caret v3 class names) ---- */
+
+.collaboration-carets__caret {
+  border-left: 1px solid;
+  border-right: 1px solid;
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: none;
+  position: relative;
+  word-break: normal;
+}
+
+.collaboration-carets__label {
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  left: -1px;
+  line-height: 1.3;
+  padding: 1px 5px;
+  position: absolute;
+  top: -1.5em;
+  user-select: none;
+  white-space: nowrap;
+}
