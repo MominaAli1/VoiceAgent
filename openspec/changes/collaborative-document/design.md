@@ -181,6 +181,40 @@ sessionStorage is per-tab, so a second tab is a second participant, which is wha
 the two-tab test requires. `localStorage` would make both tabs the same person and
 quietly defeat the test.
 
+### D12 — `@y/websocket-server` pinned to `0.1.1` exactly, not `^0.1.5`
+
+D8 chose `@y/websocket-server` as the relay binary and pinned it as `^0.1.5`.
+Running Gate B and Milestone A end-to-end (relay + two browser tabs + the
+server participant, all together) surfaced that `^0.1.5` resolves to
+`0.1.5`, and `0.1.5` is **not wire-compatible** with the rest of this project.
+
+`0.1.5` depends on `yjs@^14.0.0-7`, a pre-release rewrite of Yjs with a
+different internal encoding (`store.getClock is not a function` when the
+relay tries to integrate an update from a `yjs@13.6.32` client). Every other
+package here — `y-websocket`, `y-prosemirror`, `@tiptap/extension-collaboration`,
+this project's own `src/config.js`-based clients — is on Yjs **v13**. `0.1.2`
+made the same jump; both were published as 0.1.x patch bumps despite being a
+breaking wire-protocol change. `0.1.0` and `0.1.1` still depend on
+`y-protocols@^1.0.5`/`yjs@13.6.32` and interoperate correctly.
+
+Measured effect of running against `0.1.5`, reproduced from a clean
+`npm install` against the committed lockfile: the relay accepts connections
+and reports `connected`, but every `readSyncStep2` / update it receives
+throws and is dropped. Two browser tabs never converge — a second tab shows
+empty content after the first tab types — and the server participant's
+`readDoc()` returns `""` even after the seed harness has written fixture
+text. This is silent: no client-side error, just a relay-side stack trace
+and content that never arrives. It fully masked Track A/B's own internal
+correctness — both tracks were individually well-built, but nothing they
+wrote could be validated against each other over this relay.
+
+**Fix:** pin `"@y/websocket-server": "0.1.1"` exactly (no `^`), so a future
+`npm install` cannot silently re-resolve onto `0.1.5` or a later 0.1.x that
+repeats the same jump. Re-run of the full two-tab + agent flow against
+`0.1.1` converges correctly with no relay errors. If `@y/websocket-server`
+ever needs to move past `0.1.1`, re-verify the exact failure mode above
+before widening the version range.
+
 ## Risks / Trade-offs
 
 - **Field/accessor mismatch (`getText` vs `getXmlFragment`)** → The primary risk, and the reason for D1. Mitigated by the ban on `getText(FIELD)`, the shared `FIELD` constant (D3), and the post-sync share-key log (D4). First suspect if the agent's text never appears.

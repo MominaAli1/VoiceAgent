@@ -168,46 +168,74 @@ Built first, so Track B needs nothing from Track A to prove itself. This
 harness stands in for the browser: it writes the same fragment structure
 Tiptap writes.
 
-- [ ] 5.1 Create `src/agent/seed-harness.js` — a `Y.Doc` plus `WebsocketProvider` joining the same room, inserting one or more `Y.XmlElement('paragraph')` nodes containing `Y.XmlText`, exactly as Tiptap's binding would
-- [ ] 5.2 Give it a runnable entry point that seeds known fixture text and stays connected
-- [ ] 5.3 Confirm two harness instances converge on the same content, proving the room and transport work independently of the browser
+- [x] 5.1 Create `src/agent/seed-harness.js` — a `Y.Doc` plus `WebsocketProvider` joining the same room, inserting one or more `Y.XmlElement('paragraph')` nodes containing `Y.XmlText`, exactly as Tiptap's binding would
+- [x] 5.2 Give it a runnable entry point that seeds known fixture text and stays connected
+- [x] 5.3 Confirm two harness instances converge on the same content, proving the room and transport work independently of the browser
 
 ## 6. Rumaisa — Server-side participant
 
-- [ ] 6.1 Create `src/agent/doc-client.js` with `connect()` — a `Y.Doc` plus `WebsocketProvider` joining `ROOM` at `WS_URL`, supplying a `ws` implementation for Node
-- [ ] 6.2 Set awareness local state to name `Assistant` with the colour reserved for it in the palette
-- [ ] 6.3 Implement `readDoc()` — walk `ydoc.getXmlFragment(FIELD)` recursively; `Y.XmlText` nodes contribute their string, element nodes contribute their walked children, siblings join with `\n` (REQ-D1a, REQ-D1c)
-- [ ] 6.4 Implement `appendText(text)` — insert a `Y.XmlElement('paragraph')` containing a `Y.XmlText` at the end of the fragment (REQ-D1d)
-- [ ] 6.5 On the provider's `synced` event, log the document share keys, the `FIELD` in use, and a preview of the initial `readDoc()` (design D4)
-- [ ] 6.6 Add the `dev:agent` entry point: connect, log the diagnostic line, print `readDoc()`, append a marker line
-- [ ] 6.7 Grep the whole codebase for `getText(` and confirm zero matches against the shared field (REQ-D1a)
+- [x] 6.1 Create `src/agent/doc-client.js` with `connect()` — a `Y.Doc` plus `WebsocketProvider` joining `ROOM` at `WS_URL`, supplying a `ws` implementation for Node
+- [x] 6.2 Set awareness local state to name `Assistant` with the colour reserved for it in the palette
+- [x] 6.3 Implement `readDoc()` — walk `ydoc.getXmlFragment(FIELD)` recursively; `Y.XmlText` nodes contribute their string, element nodes contribute their walked children, siblings join with `\n` (REQ-D1a, REQ-D1c)
+- [x] 6.4 Implement `appendText(text)` — insert a `Y.XmlElement('paragraph')` containing a `Y.XmlText` at the end of the fragment (REQ-D1d)
+- [x] 6.5 On the provider's `synced` event, log the document share keys, the `FIELD` in use, and a preview of the initial `readDoc()` (design D4)
+- [x] 6.6 Add the `dev:agent` entry point: connect, log the diagnostic line, print `readDoc()`, append a marker line
+- [x] 6.7 Grep the whole codebase for `getText(` and confirm zero matches against the shared field (REQ-D1a) — only match is the warning comment in `src/config.js`
 
 ## 7. Rumaisa — README
 
-- [ ] 7.1 Write the README: all three processes, their exact commands, the required start order (relay → web → agent), and the editor URL
-- [ ] 7.2 Document that `FIELD` must match Tiptap's Collaboration `field`, that a mismatch shows up as an empty `readDoc()` with no error, and that the share-key log line is the first thing to check
+- [x] 7.1 Write the README: all three processes, their exact commands, the required start order (relay → web → agent), and the editor URL
+- [x] 7.2 Document that `FIELD` must match Tiptap's Collaboration `field`, that a mismatch shows up as an empty `readDoc()` with no error, and that the share-key log line is the first thing to check
 
 ## 8. Rumaisa — Gate B (verifiable without any of Momina's work)
 
 Run the relay, the seed harness, and the server participant. No browser involved.
 
-- [ ] 8.1 The participant connects and emits the share-key diagnostic line on sync
-- [ ] 8.2 `readDoc()` returns the harness's seeded fixture text — non-empty, matching what was seeded
-- [ ] 8.3 Multi-paragraph fixture text comes back with paragraphs separated by `\n`
-- [ ] 8.4 `appendText()` output is visible to the harness instance as a well-formed paragraph node, and a subsequent `readDoc()` includes it
-- [ ] 8.5 The logged share keys contain `FIELD`, and `readDoc()` is non-empty for a seeded document — the two together rule out the D1 failure mode
+- [x] 8.1 The participant connects and emits the share-key diagnostic line on sync
+- [x] 8.2 `readDoc()` returns the harness's seeded fixture text — non-empty, matching what was seeded
+- [x] 8.3 Multi-paragraph fixture text comes back with paragraphs separated by `\n`
+- [x] 8.4 `appendText()` output is visible to the harness instance as a well-formed paragraph node, and a subsequent `readDoc()` includes it
+- [x] 8.5 The logged share keys contain `FIELD`, and `readDoc()` is non-empty for a seeded document — the two together rule out the D1 failure mode
+
+**Gate B re-verified after the D12 fix.** The code for groups 5-8 was already
+correct, but it could not be proven against the relay as originally pinned
+(`@y/websocket-server@^0.1.5`) — see the note on Milestone A below. Re-run
+against `0.1.1`: harness seeds three paragraphs, agent's `readDoc()` returns
+them non-empty with `\n` separators, `appendText()`'s marker line is visible
+to a subsequent `readDoc()`, share keys log `default` on sync.
 
 ## 9. Joint — Milestone A acceptance
 
 Both tracks merged. Run the relay, two browser tabs, and the server participant
 together. Verified by running the system, not by inspection.
 
-- [ ] 9.1 Two browser tabs open on the same document: text typed in either appears live in the other
-- [ ] 9.2 Each tab shows the other's cursor, labelled and coloured, with selections visible and markers removed on disconnect
-- [ ] 9.3 The server participant joins the same room and appears to both tabs as a third participant named `Assistant`
-- [ ] 9.4 `readDoc()` returns the text currently visible in the browser tabs — non-empty, paragraphs separated by line breaks
-- [ ] 9.5 Text appended by the server participant appears live in **both** tabs, renders as a normal editable paragraph, and leaves the document editable and uncorrupted
-- [ ] 9.6 Typing by hand in a tab while the server participant appends produces no corruption and no lost characters
-- [ ] 9.7 Undo in one tab reverts only that participant's own change and leaves all replicas converged
-- [ ] 9.8 The share-key diagnostic line is present in the server participant's output on sync
-- [ ] 9.9 The README's commands, followed from a clean checkout, reach this state
+- [x] 9.1 Two browser tabs open on the same document: text typed in either appears live in the other
+- [x] 9.2 Each tab shows the other's cursor, labelled and coloured, with selections visible and markers removed on disconnect
+- [x] 9.3 The server participant joins the same room and appears to both tabs as a third participant named `Assistant`
+- [x] 9.4 `readDoc()` returns the text currently visible in the browser tabs — non-empty, paragraphs separated by line breaks
+- [x] 9.5 Text appended by the server participant appears live in **both** tabs, renders as a normal editable paragraph, and leaves the document editable and uncorrupted
+- [x] 9.6 Typing by hand in a tab while the server participant appends produces no corruption and no lost characters
+- [x] 9.7 Undo in one tab reverts only that participant's own change and leaves all replicas converged
+- [x] 9.8 The share-key diagnostic line is present in the server participant's output on sync
+- [ ] 9.9 The README's commands, followed from a clean checkout, reach this state — not re-verified from a literal clean checkout in this pass; commands were run manually in the existing checkout after the D12 fix, not via a scripted fresh-clone run
+
+**Milestone A — blocked, then passed, by a bug outside both tracks.** Running
+the full system for the first time (relay + two Playwright-driven browser
+tabs + the server participant, together) surfaced that `@y/websocket-server`
+as pinned (`^0.1.5`, resolving to `0.1.5`) silently breaks all cross-client
+sync: it depends on a Yjs v14 pre-release with a wire format incompatible
+with the `yjs@13.6.32` every client here uses. The relay accepted
+connections but threw `TypeError: store.getClock is not a function` on every
+real update, so a second tab never saw a first tab's text and the agent's
+`readDoc()` came back empty even after the harness had seeded content — with
+no client-side error at all. This was present in the exact state pushed to
+`main`, so neither Gate A nor Gate B were actually provable end-to-end
+despite both tracks' code being correct in isolation. See design.md D12.
+
+Fixed by pinning `@y/websocket-server` to `0.1.1` exactly (last version on
+the Yjs v13 line). Re-running the identical two-tab + agent flow against
+`0.1.1`: both tabs converge on typed text, remote carets render, the
+`#peers` list shows `Assistant` in both tabs once the agent connects, the
+agent's appended line appears live in both tabs, and undo in one tab reverts
+only that tab's own edit while the other tab's content (including the
+agent's append) is untouched.

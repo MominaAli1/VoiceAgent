@@ -23,7 +23,7 @@
     "yjs": "^13.6.32"
   },
   "devDependencies": {
-    "@y/websocket-server": "^0.1.5",
+    "@y/websocket-server": "0.1.1",
     "vite": "^8.2.2"
   }
 }
