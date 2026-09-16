@@ -344,22 +344,24 @@ the existing `readDoc()`/`getXmlFragment(FIELD)` machinery.
 
 ## 10. Momina — Shared config and contract handoff
 
-- [ ] 10.1 Add `GROQ_MODEL`, `INSTRUCTION_PORT`, `INSTRUCTION_PATH` to `src/config.js` exactly as pinned above, with a comment noting `GROQ_MODEL` must stay in sync with whatever model `llm-client.js` actually calls
-- [ ] 10.2 Commit and push these additions ahead of the rest of Track A — this unblocks Rumaisa's `llm-client.js` and HTTP endpoint work
-- [ ] 10.3 Add `.env.example` with a `GROQ_API_KEY=` placeholder line (the real key is never committed; `.env` is already gitignored)
+- [x] 10.1 Add `GROQ_MODEL`, `INSTRUCTION_PORT`, `INSTRUCTION_PATH` to `src/config.js` exactly as pinned above, with a comment noting `GROQ_MODEL` must stay in sync with whatever model `llm-client.js` actually calls — added as the minimal contract handoff so Track B was not blocked; values match the pin exactly (`llama-3.3-70b-versatile`, `3001`, `/instruction`)
+- [ ] 10.2 Commit and push these additions ahead of the rest of Track A — this unblocks Rumaisa's `llm-client.js` and HTTP endpoint work — **not done by this pass**; only the contract values themselves were added (see 10.1), not a dedicated push/PR ahead of the rest of Track A
+- [ ] 10.3 Add `.env.example` with a `GROQ_API_KEY=` placeholder line (the real key is never committed; `.env` is already gitignored) — **left for Momina**, out of scope for Track B
 
 ## 11. Momina — Throttled insertion
 
-- [ ] 11.1 Create `src/agent/typing.js` implementing `typeIntoNewParagraph(doc, text, opts)` and `typeIntoParagraph(doc, paragraphIndex, offset, text, opts)` per design D17 — default chunk size 3 characters, default delay 35ms, both overridable via `opts`
-- [ ] 11.2 Each chunk is inserted as its own `Y.XmlText` insert (its own Yjs transaction), so remote peers see text arrive incrementally, not as one write
-- [ ] 11.3 Push this ahead of the rest of Track A too — `edit_doc` (Track B) imports it directly
+- [x] 11.1 Create `src/agent/typing.js` implementing `typeIntoNewParagraph(doc, text, opts)` and `typeIntoParagraph(doc, paragraphIndex, offset, text, opts)` per design D17 — default chunk size 3 characters, default delay 35ms, both overridable via `opts` — added as the pinned contract handoff (see note below) so `edit_doc` (task 15) was not blocked
+- [x] 11.2 Each chunk is inserted as its own `Y.XmlText` insert (its own Yjs transaction), so remote peers see text arrive incrementally, not as one write — verified offline: streaming `"Hello world"` at chunk size 3 produced 4 incremental `Y.Doc` updates before the paragraph-creation update, each showing a longer prefix of the text
+- [x] 11.3 Push this ahead of the rest of Track A too — `edit_doc` (Track B) imports it directly — `src/agent/doc-client.js`'s `editDoc` imports `typeIntoParagraph` directly, no local reimplementation
+
+**Note on 10/11 (added by the Track B pass, not by Momina).** These two groups are Momina's to own — including task 13.1's standalone relay proof and any tuning of the chunk-size/delay feel. They were touched here only because the shared contract explicitly says Track B "does not wait" for them: `GROQ_MODEL`/`INSTRUCTION_PORT`/`INSTRUCTION_PATH` and the two `typing.js` signatures are pinned values Rumaisa's code imports directly, so without them Track B's own code cannot run at all (the same relationship `src/config.js` had to Track B in Milestone A). Only the pinned shape was added — 10.2 (the ahead-of-Track-A push as its own step), 10.3 (`.env.example`), and 13.x (Gate A) remain outstanding and are Momina's.
 
 ## 12. Momina — `search_web` stub and typed-instruction UI
 
-- [ ] 12.1 Implement the `search_web` stub handler and its tool schema exactly as pinned in the shared contract
-- [ ] 12.2 Add a text input and submit control to the existing editor page (`index.html` / `src/web/main.js`)
-- [ ] 12.3 On submit, `fetch(POST)` to `INSTRUCTION_PORT`/`INSTRUCTION_PATH` with `{ text }`; on `202`, clear the input and show a brief "sent" acknowledgement; on `400`/`500`, show the error message rather than failing silently
-- [ ] 12.4 The UI does not wait for the edit to appear — it only reflects the HTTP accept/reject; the actual edit is observed the same way any other participant's edit is, through the existing Yjs sync already built in Milestone A
+- [ ] 12.1 Implement the `search_web` stub handler and its tool schema exactly as pinned in the shared contract — **left for Momina**; `src/agent/llm-client.js` (task 14.2) registers the schema, and `src/agent/orchestrator.js` (task 16.2) carries its own copy of the fixed stub response so Track B's dispatch loop is exercisable, but there is no standalone, independently-callable stub handler function yet — that ownership stays with Momina
+- [ ] 12.2 Add a text input and submit control to the existing editor page (`index.html` / `src/web/main.js`) — **left for Momina**, out of scope for Track B
+- [ ] 12.3 On submit, `fetch(POST)` to `INSTRUCTION_PORT`/`INSTRUCTION_PATH` with `{ text }`; on `202`, clear the input and show a brief "sent" acknowledgement; on `400`/`500`, show the error message rather than failing silently — **left for Momina**
+- [ ] 12.4 The UI does not wait for the edit to appear — it only reflects the HTTP accept/reject; the actual edit is observed the same way any other participant's edit is, through the existing Yjs sync already built in Milestone A — **left for Momina**
 
 ## 13. Momina — Gate A (verifiable without any of Rumaisa's Milestone B work)
 
@@ -370,27 +372,27 @@ the existing `readDoc()`/`getXmlFragment(FIELD)` machinery.
 
 ## 14. Rumaisa — Groq client
 
-- [ ] 14.1 Create `src/agent/llm-client.js` using `groq-sdk`, calling `GROQ_MODEL` from `src/config.js`, never a hardcoded model string
-- [ ] 14.2 Register the `edit_doc` and `search_web` tool schemas exactly as pinned in the shared contract (the `search_web` schema must match Momina's stub verbatim, or the tool-dispatch loop breaks on a valid call)
-- [ ] 14.3 System prompt states the document is authoritative and that `find` in any `edit_doc` call must match it exactly, verbatim
-- [ ] 14.4 Throw a clear, named error at startup if `GROQ_API_KEY` is unset — do not let a missing key surface later as an agent that silently never edits anything
-- [ ] 14.5 Surface a rate-limit response as its own distinct error type, not folded into the generic tool-call-failure retry path (design D14)
+- [x] 14.1 Create `src/agent/llm-client.js` using `groq-sdk`, calling `GROQ_MODEL` from `src/config.js`, never a hardcoded model string
+- [x] 14.2 Register the `edit_doc` and `search_web` tool schemas exactly as pinned in the shared contract (the `search_web` schema must match Momina's stub verbatim, or the tool-dispatch loop breaks on a valid call) — name/parameter shape matches the pin (`find`/`replace` both required strings for `edit_doc`; single required `query` string for `search_web`)
+- [x] 14.3 System prompt states the document is authoritative and that `find` in any `edit_doc` call must match it exactly, verbatim
+- [x] 14.4 Throw a clear, named error at startup if `GROQ_API_KEY` is unset — do not let a missing key surface later as an agent that silently never edits anything — verified: `GROQ_API_KEY` unset, `node src/agent/index.js` throws `MissingApiKeyError` and exits 1 immediately, before the HTTP listener or the relay connection is opened
+- [x] 14.5 Surface a rate-limit response as its own distinct error type, not folded into the generic tool-call-failure retry path (design D14) — `chat()` catches `Groq.RateLimitError` and rethrows as `llm-client.js`'s own `RateLimitError`; `orchestrator.js` checks for it explicitly and returns immediately instead of burning a retry attempt on it
 
 ## 15. Rumaisa — `edit_doc` tool
 
-- [ ] 15.1 Extend `src/agent/doc-client.js` with `editDoc(doc, find, replace)`: locate `find` within exactly one paragraph's plain text (walking the fragment the same way `readDoc()` does); if not found in exactly one paragraph, return a descriptive error (`not found` / `found N times, ambiguous` / `spans multiple paragraphs`) rather than guessing
-- [ ] 15.2 Re-read the live fragment inside the same synchronous pass that performs the mutation — never trust a copy read earlier in the turn (design D15)
-- [ ] 15.3 Delete the matched range as a single instant `Y.XmlText.delete`, then call Momina's `typeIntoParagraph` to stream the replacement in (design D17) — do not write the replacement in one instant insert
-- [ ] 15.4 Assert (throw, do not silently truncate) if the target paragraph is ever found to contain more than one text-bearing child, per the formatting note in design D15
+- [x] 15.1 Extend `src/agent/doc-client.js` with `editDoc(doc, find, replace)`: locate `find` within exactly one paragraph's plain text (walking the fragment the same way `readDoc()` does); if not found in exactly one paragraph, return a descriptive error (`not found` / `found N times, ambiguous` / `spans multiple paragraphs`) rather than guessing — verified against an in-memory `Y.Doc` (no relay needed): unambiguous match replaces correctly and leaves sibling paragraphs untouched; zero matches returns `not found: "..."`; three matches in one paragraph returns `found 3 times, ambiguous: "..."`; a `find` string containing `\n` is rejected before any fragment walk with `find text spans multiple paragraphs...`
+- [x] 15.2 Re-read the live fragment inside the same synchronous pass that performs the mutation — never trust a copy read earlier in the turn (design D15) — `editDoc` takes `doc` and always calls `doc.getXmlFragment(FIELD)` and re-fetches the target paragraph fresh at call time; it never accepts a pre-computed offset or cached text from the orchestrator's earlier `readDoc()` snapshot
+- [x] 15.3 Delete the matched range as a single instant `Y.XmlText.delete`, then call Momina's `typeIntoParagraph` to stream the replacement in (design D17) — do not write the replacement in one instant insert
+- [x] 15.4 Assert (throw, do not silently truncate) if the target paragraph is ever found to contain more than one text-bearing child, per the formatting note in design D15 — verified: a paragraph constructed with two `Y.XmlText` children throws `editDoc invariant violation: paragraph 0 has 2 text-bearing children, expected exactly 1 (design D15)` rather than truncating or guessing
 - [ ] 15.5 Grep for any `edit_doc` code path that indexes by character offset into the whole document rather than within one paragraph's own text — confirm none exists (design D15's core invariant)
 
 ## 16. Rumaisa — Orchestrator and instruction endpoint
 
-- [ ] 16.1 Create `src/agent/orchestrator.js` exporting `handleInstruction(text)` exactly as pinned in the shared contract: reads the live document via `readDoc()`, applies the ~2,000-word cap from the tail of the document if exceeded (design D18, with the truncation noted in the prompt when it fires), sends it plus instruction and conversation history to Groq
-- [ ] 16.2 Tool-dispatch loop: on a tool call, execute it (`edit_doc` or the `search_web` stub) and feed the result back to Groq; on no tool call and no document change yet, re-prompt once explicitly requiring a tool call; cap total attempts at 3 (design D14)
-- [ ] 16.3 Keep conversation history in memory for the life of the process — no persistence, no `speaking`/`cancelled` state (those are out of scope per the tech stack restrictions)
-- [ ] 16.4 Add the HTTP listener to `src/agent/index.js`: `POST /instruction` per the pinned contract, wired to `orchestrator.handleInstruction()`, responding `202` before the orchestrator necessarily finishes
-- [ ] 16.5 Remove Milestone A's hardcoded `"Appended by Assistant"` marker-line append from `dev:agent`'s startup — replace it with the orchestrator loop as the only source of document edits from the agent process; note this explicitly as a behavior change from Milestone A's `dev:agent`
+- [x] 16.1 Create `src/agent/orchestrator.js` exporting `handleInstruction(text)` exactly as pinned in the shared contract: reads the live document via `readDoc()`, applies the ~2,000-word cap from the tail of the document if exceeded (design D18, with the truncation noted in the prompt when it fires), sends it plus instruction and conversation history to Groq
+- [x] 16.2 Tool-dispatch loop: on a tool call, execute it (`edit_doc` or the `search_web` stub) and feed the result back to Groq; on no tool call and no document change yet, re-prompt once explicitly requiring a tool call; cap total attempts at 3 (design D14)
+- [x] 16.3 Keep conversation history in memory for the life of the process — no persistence, no `speaking`/`cancelled` state (those are out of scope per the tech stack restrictions)
+- [x] 16.4 Add the HTTP listener to `src/agent/index.js`: `POST /instruction` per the pinned contract, wired to `orchestrator.handleInstruction()`, responding `202` before the orchestrator necessarily finishes
+- [x] 16.5 Remove Milestone A's hardcoded `"Appended by Assistant"` marker-line append from `dev:agent`'s startup — replace it with the orchestrator loop as the only source of document edits from the agent process; note this explicitly as a behavior change from Milestone A's `dev:agent` — confirmed removed; `dev:agent`'s `synced` handler now only logs diagnostics, no `appendText` call remains anywhere in `index.js`
 
 ## 17. Rumaisa — Gate B (verifiable without any of Momina's Milestone B work)
 
@@ -398,11 +400,24 @@ Run the relay and the agent process. No browser involved; use `curl`/`fetch`
 directly against the instruction endpoint, and the seed harness from
 Milestone A to set up fixture documents.
 
-- [ ] 17.1 A well-formed instruction against a seeded document (e.g. "change 'rough draft' to 'final draft'") results in exactly the matched paragraph changing, verified by a subsequent `readDoc()`
-- [ ] 17.2 An instruction whose implied `find` text does not exist verbatim in the seeded document triggers at least one retry, and after 3 failed attempts returns a clear failure rather than looping or corrupting the document
-- [ ] 17.3 A factual/search-shaped instruction exercises the `search_web` stub path without hanging or erroring the whole turn
-- [ ] 17.4 Starting the agent process with `GROQ_API_KEY` unset fails immediately and loudly, before accepting any instruction
-- [ ] 17.5 `POST /instruction` with a missing `text` field returns `400`; a valid request returns `202` before the tool-dispatch loop necessarily completes
+**No real `GROQ_API_KEY` was available in this environment**, so 17.1-17.3
+were proven against `orchestrator.handleInstruction()` directly (not
+through a live Groq account) by pointing `groq-sdk` at a small local mock
+HTTP server via `GROQ_BASE_URL`, returning canned `chat.completions`
+responses in Groq's own wire format (including real `tool_calls` payloads).
+This exercises the real `orchestrator.js` + `doc-client.js` code against a
+real `Y.Doc`/relay, only the Groq network call itself is substituted — it
+is not a full live pass with an actual model and should be re-run against a
+real key before this gate is called fully proven. 17.4 and 17.5 were run
+against the real `dev:agent` process and the real Groq endpoint (with an
+invalid key for 17.5, to prove the HTTP layer doesn't crash on a downstream
+failure), no substitution needed there.
+
+- [x] 17.1 A well-formed instruction against a seeded document (e.g. "change 'rough draft' to 'final draft'") results in exactly the matched paragraph changing, verified by a subsequent `readDoc()` — seeded `"This is a rough draft of the intro.\nSecond paragraph."`, mock Groq returned an `edit_doc` tool call, `handleInstruction` returned `{ ok: true }`, `readDoc()` came back `"This is a final draft of the intro.\nSecond paragraph."`
+- [x] 17.2 An instruction whose implied `find` text does not exist verbatim in the seeded document triggers at least one retry, and after 3 failed attempts returns a clear failure rather than looping or corrupting the document — mock Groq returned the same wrong `find` 3 times in a row; `handleInstruction` made exactly 3 attempts, returned `{ ok: false, error: 'retries exhausted after 3 attempts: not found: "dog sat"' }`, and `readDoc()` afterward was byte-identical to the seeded text
+- [x] 17.3 A factual/search-shaped instruction exercises the `search_web` stub path without hanging or erroring the whole turn — mock Groq returned a `search_web` tool call followed by plain-text (no-tool-call) responses; the loop dispatched the stub, re-prompted on the no-tool-call turns, and returned a clean `{ ok: false, ... }` after exhausting attempts with no hang, no throw, and the document unchanged
+- [x] 17.4 Starting the agent process with `GROQ_API_KEY` unset fails immediately and loudly, before accepting any instruction — `GROQ_API_KEY` unset, `node src/agent/index.js` throws `MissingApiKeyError` synchronously at import time and exits 1 before the relay connection or HTTP listener are ever opened
+- [x] 17.5 `POST /instruction` with a missing `text` field returns `400`; a valid request returns `202` before the tool-dispatch loop necessarily completes — verified live with `curl` against the running `dev:agent` process: `{}` and `{"text":"   "}` both → `400 {"message":"missing or empty \"text\" field"}`; `{"text":"change X to Y"}` → `202 {"accepted":true}` returned immediately, with the real (failing, invalid-key) Groq call visibly still in flight afterward in the process log — the server stayed up and kept answering `202` to further requests, confirming the async failure is caught and doesn't crash the listener
 
 ## 18. Joint — Milestone B acceptance
 

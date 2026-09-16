@@ -37,3 +37,29 @@ export const WS_URL = 'ws://[::1]:1234';
  * thing to check. See openspec/changes/collaborative-document/design.md — D1.
  */
 export const FIELD = 'default';
+
+/**
+ * --- Milestone B additions ---
+ *
+ * Pinned by the shared contract in openspec/changes/collaborative-document/tasks.md
+ * so Track B (Rumaisa) is never blocked waiting on the rest of Track A. These
+ * three values are the contract handoff only; Momina's remaining Track A work
+ * (typed-instruction UI, `search_web` stub wiring, `.env.example`, Gate A) is
+ * separate and unaffected by this file.
+ */
+
+/**
+ * The Groq model `llm-client.js` calls. Must stay in sync with whatever
+ * model `llm-client.js` actually calls — never hardcode a model string
+ * there, import it from here instead.
+ */
+export const GROQ_MODEL = 'llama-3.3-70b-versatile';
+
+/**
+ * Port the agent process's instruction HTTP endpoint listens on. Separate
+ * from both the relay (1234) and Vite (5173). See design.md D16.
+ */
+export const INSTRUCTION_PORT = 3001;
+
+/** Path of the instruction HTTP endpoint. See design.md D16. */
+export const INSTRUCTION_PATH = '/instruction';
