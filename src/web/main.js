@@ -12,8 +12,9 @@ import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 
-import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH } from '../config.js';
+import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, PTT_KEY_CODE } from '../config.js';
 import { randomUserColor } from '../palette.js';
+import { createSpeechInput } from './stt.js';
 
 // ---------------------------------------------------------------- identity
 
@@ -189,6 +190,64 @@ provider.awareness.on('change', () => {
     instructionStatus.textContent = result.ok ? 'Done' : `Couldn't do that: ${result.error}`;
   }
 });
+
+// ---------------------------------------------------------------- push-to-talk (Milestone C)
+
+// Holding Right Ctrl or the mic button speaks an instruction. Partials show as
+// ghost text outside the document (design D24); the final transcript goes
+// through the typed-instruction form above, unchanged, so its outcome is
+// reported the same way.
+const transcriptEl = document.querySelector('#transcript');
+const pttButton = document.querySelector('#ptt-button');
+
+function showTranscript(state, text) {
+  transcriptEl.dataset.state = state;
+  transcriptEl.textContent = text;
+}
+
+const speech = createSpeechInput({
+  onPartial: (text) => showTranscript('partial', text || 'Listening…'),
+  onFinal: (text) => {
+    if (!text) {
+      showTranscript('empty', "Didn't catch that");
+      return;
+    }
+    showTranscript('final', text);
+    instructionInput.value = text;
+    instructionForm.requestSubmit();
+  },
+  onError: (message) => showTranscript('error', message),
+});
+
+function pressStart() {
+  pttButton.dataset.active = 'true';
+  speech.startPress();
+}
+
+function pressEnd() {
+  delete pttButton.dataset.active;
+  speech.endPress();
+}
+
+// Matched on `code`, so it's layout-independent; Ctrl alone types nothing (design D22).
+window.addEventListener('keydown', (event) => {
+  if (event.code !== PTT_KEY_CODE) return;
+  if (!event.repeat) pressStart();
+});
+window.addEventListener('keyup', (event) => {
+  if (event.code === PTT_KEY_CODE) pressEnd();
+});
+// Alt-tabbing away mid-press would otherwise never deliver the keyup.
+window.addEventListener('blur', pressEnd);
+
+pttButton.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  pttButton.setPointerCapture(event.pointerId);
+  pressStart();
+});
+for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+  pttButton.addEventListener(type, pressEnd);
+}
 
 // Handy for poking at the document from the browser console.
 Object.assign(window, { editor, ydoc, provider, Y });

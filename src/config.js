@@ -63,3 +63,37 @@ export const INSTRUCTION_PORT = 3001;
 
 /** Path of the instruction HTTP endpoint. See design.md D16. */
 export const INSTRUCTION_PATH = '/instruction';
+
+/**
+ * --- Milestone C additions (speech in) ---
+ *
+ * Pinned by the Milestone C shared contract in
+ * openspec/changes/collaborative-document/tasks.md.
+ */
+
+/** Token route on the agent's existing HTTP server (INSTRUCTION_PORT). Design D19. */
+export const STT_TOKEN_PATH = '/stt-token';
+
+/** AssemblyAI v3 streaming socket; the browser connects here directly. Design D19. */
+export const STT_WS_URL = 'wss://streaming.assemblyai.com/v3/ws';
+
+/** Sample rate declared to AssemblyAI and produced by the worklet. Design D21. */
+export const STT_SAMPLE_RATE = 16000;
+
+/** Samples per audio frame: 800 at 16 kHz is 50 ms, the API's minimum. Design D21. */
+export const STT_FRAME_SAMPLES = 800;
+
+/** Streaming model; swap for 'universal-streaming-english' if latency needs it. Design D20 risks. */
+export const STT_SPEECH_MODEL = 'universal-3-5-pro';
+
+/** Close the session after this long with no push-to-talk press. Design D20. */
+export const STT_IDLE_CLOSE_MS = 60000;
+
+/** Server-side safety net if the tab dies without sending Terminate. Design D20. */
+export const STT_SERVER_IDLE_TIMEOUT_S = 120;
+
+/** Longest wait for the final turn after key-up before falling back to the partial. Design D23. */
+export const STT_FINAL_WAIT_MS = 1500;
+
+/** Push-to-talk key, matched on KeyboardEvent.code. Design D22. */
+export const PTT_KEY_CODE = 'ControlRight';
