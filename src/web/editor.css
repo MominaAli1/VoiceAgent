@@ -108,19 +108,64 @@ main { padding: 40px 20px 25vh; }
 
 /* ---- typed-instruction bar (Milestone B) ---- */
 
-.instruction-bar {
+.dock {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 20px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   z-index: 10;
 }
+
+.instruction-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+}
+
+/* ---- push-to-talk (Milestone C) ---- */
+
+.transcript {
+  padding: 8px 20px 0;
+  min-height: 2.2em;
+  font-size: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.transcript[data-state='partial'] { color: var(--muted); font-style: italic; opacity: 0.75; }
+.transcript[data-state='final'] { color: var(--text); font-weight: 500; }
+.transcript[data-state='empty'] { color: var(--muted); }
+.transcript[data-state='error'] { color: #e5484d; }
+
+.ptt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 600;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  flex: none;
+}
+.ptt:hover { border-color: #0090ff; }
+.ptt-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.ptt[data-active='true'] { border-color: #e5484d; color: #e5484d; }
+.ptt[data-active='true'] .ptt-dot { background: #e5484d; box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.2); }
 
 #instruction-input {
   flex: 1;

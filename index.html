@@ -20,18 +20,28 @@
       <div id="editor"></div>
     </main>
 
-    <form class="instruction-bar" id="instruction-form">
-      <input
-        id="instruction-input"
-        type="text"
-        placeholder="Tell the agent what to do…"
-        aria-label="Typed instruction for the agent"
-        maxlength="500"
-        autocomplete="off"
-      />
-      <button id="instruction-submit" type="submit">Send</button>
-      <span id="instruction-status" class="instruction-status" role="status"></span>
-    </form>
+    <footer class="dock">
+      <!-- Ghost text for push-to-talk. Never written into the document (design D24). -->
+      <div id="transcript" class="transcript" data-state="idle" aria-live="polite">
+        Hold Right Ctrl or the mic button to speak an instruction
+      </div>
+
+      <form class="instruction-bar" id="instruction-form">
+        <button id="ptt-button" class="ptt" type="button" aria-label="Hold to talk" title="Hold to talk (or hold Right Ctrl)">
+          <span class="ptt-dot" aria-hidden="true"></span>Hold to talk
+        </button>
+        <input
+          id="instruction-input"
+          type="text"
+          placeholder="Tell the agent what to do…"
+          aria-label="Typed instruction for the agent"
+          maxlength="500"
+          autocomplete="off"
+        />
+        <button id="instruction-submit" type="submit">Send</button>
+        <span id="instruction-status" class="instruction-status" role="status"></span>
+      </form>
+    </footer>
 
     <script type="module" src="/src/web/main.js"></script>
   </body>

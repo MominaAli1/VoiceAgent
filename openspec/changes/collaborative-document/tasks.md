@@ -219,7 +219,7 @@ together. Verified by running the system, not by inspection.
 - [x] 9.6 Typing by hand in a tab while the server participant appends produces no corruption and no lost characters
 - [x] 9.7 Undo in one tab reverts only that participant's own change and leaves all replicas converged
 - [x] 9.8 The share-key diagnostic line is present in the server participant's output on sync
-- [ ] 9.9 The README's commands, followed from a clean checkout, reach this state — not re-verified from a literal clean checkout in this pass; commands were run manually in the existing checkout after the D12 fix, not via a scripted fresh-clone run
+- [x] 9.9 The README's commands, followed from a clean checkout, reach this state — ~~not re-verified from a literal clean checkout in this pass~~ **done on Sept 16 after PR #3:** fresh `git clone`, `npm install`, then `npm run dev:ws` → `npm run dev:web` → `npm run dev:agent` in the README's order. Two tabs synced typed text live with named carets, `Assistant` appeared in both tabs' peer lists, and its appended line appeared in both. Undo (9.7) and selections were not re-run in that pass
 
 **Milestone A — blocked, then passed, by a bug outside both tracks.** Running
 the full system for the first time (relay + two Playwright-driven browser
@@ -351,8 +351,8 @@ the existing `readDoc()`/`getXmlFragment(FIELD)` machinery.
 ## 10. Momina — Shared config and contract handoff
 
 - [x] 10.1 Add `GROQ_MODEL`, `INSTRUCTION_PORT`, `INSTRUCTION_PATH` to `src/config.js` exactly as pinned above, with a comment noting `GROQ_MODEL` must stay in sync with whatever model `llm-client.js` actually calls — added as the minimal contract handoff so Track B was not blocked; values match the pin exactly (`llama-3.3-70b-versatile`, `3001`, `/instruction`)
-- [ ] 10.2 Commit and push these additions ahead of the rest of Track A — this unblocks Rumaisa's `llm-client.js` and HTTP endpoint work — **not done by this pass**; only the contract values themselves were added (see 10.1), not a dedicated push/PR ahead of the rest of Track A
-- [ ] 10.3 Add `.env.example` with a `GROQ_API_KEY=` placeholder line (the real key is never committed; `.env` is already gitignored) — **left for Momina**, out of scope for Track B
+- [ ] 10.2 Commit and push these additions ahead of the rest of Track A — this unblocks Rumaisa's `llm-client.js` and HTTP endpoint work — **never done as a separate early push, and no longer needed**: both tracks are merged to `main`
+- [x] 10.3 Add `.env.example` with a `GROQ_API_KEY=` placeholder line (the real key is never committed; `.env` is already gitignored) — landed with Momina's Track A (PR #7); `.env` and `.env.*` are gitignored with `!.env.example` excepted
 
 ## 11. Momina — Throttled insertion
 
@@ -360,14 +360,14 @@ the existing `readDoc()`/`getXmlFragment(FIELD)` machinery.
 - [x] 11.2 Each chunk is inserted as its own `Y.XmlText` insert (its own Yjs transaction), so remote peers see text arrive incrementally, not as one write — verified offline: streaming `"Hello world"` at chunk size 3 produced 4 incremental `Y.Doc` updates before the paragraph-creation update, each showing a longer prefix of the text
 - [x] 11.3 Push this ahead of the rest of Track A too — `edit_doc` (Track B) imports it directly — `src/agent/doc-client.js`'s `editDoc` imports `typeIntoParagraph` directly, no local reimplementation
 
-**Note on 10/11 (added by the Track B pass, not by Momina).** These two groups are Momina's to own — including task 13.1's standalone relay proof and any tuning of the chunk-size/delay feel. They were touched here only because the shared contract explicitly says Track B "does not wait" for them: `GROQ_MODEL`/`INSTRUCTION_PORT`/`INSTRUCTION_PATH` and the two `typing.js` signatures are pinned values Rumaisa's code imports directly, so without them Track B's own code cannot run at all (the same relationship `src/config.js` had to Track B in Milestone A). Only the pinned shape was added — 10.2 (the ahead-of-Track-A push as its own step), 10.3 (`.env.example`), and 13.x (Gate A) remain outstanding and are Momina's.
+**Note on 10/11 (added by the Track B pass, not by Momina).** These two groups are Momina's to own — including task 13.1's standalone relay proof and any tuning of the chunk-size/delay feel. They were touched here only because the shared contract explicitly says Track B "does not wait" for them: `GROQ_MODEL`/`INSTRUCTION_PORT`/`INSTRUCTION_PATH` and the two `typing.js` signatures are pinned values Rumaisa's code imports directly, so without them Track B's own code cannot run at all (the same relationship `src/config.js` had to Track B in Milestone A). Only the pinned shape was added — 10.2 (the ahead-of-Track-A push as its own step), 10.3 (`.env.example`), and 13.x (Gate A) remain outstanding and are Momina's. *(Update: 10.3, 12.x and 13.x all landed in Momina's PR #7; 10.2 is moot.)*
 
 ## 12. Momina — `search_web` stub and typed-instruction UI
 
-- [ ] 12.1 Implement the `search_web` stub handler and its tool schema exactly as pinned in the shared contract — **left for Momina**; `src/agent/llm-client.js` (task 14.2) registers the schema, and `src/agent/orchestrator.js` (task 16.2) carries its own copy of the fixed stub response so Track B's dispatch loop is exercisable, but there is no standalone, independently-callable stub handler function yet — that ownership stays with Momina
-- [ ] 12.2 Add a text input and submit control to the existing editor page (`index.html` / `src/web/main.js`) — **left for Momina**, out of scope for Track B
-- [ ] 12.3 On submit, `fetch(POST)` to `INSTRUCTION_PORT`/`INSTRUCTION_PATH` with `{ text }`; on `202`, clear the input and show a brief "sent" acknowledgement; on `400`/`500`, show the error message rather than failing silently — **left for Momina**
-- [ ] 12.4 The UI does not wait for the edit to appear — it only reflects the HTTP accept/reject; the actual edit is observed the same way any other participant's edit is, through the existing Yjs sync already built in Milestone A — **left for Momina**
+- [x] 12.1 Implement the `search_web` stub handler and its tool schema exactly as pinned in the shared contract — `src/agent/search-web.js` exports `SEARCH_WEB_SCHEMA` and `searchWeb()` (PR #7), proven in 13.2. **Heads-up for Days 12-13:** nothing imports this file. `llm-client.js` registers its own copy of the schema (`SEARCH_WEB_TOOL`) and `orchestrator.js` returns its own copy of the stub response, so wiring in Tavily means replacing those copies or switching them to import `search-web.js` — editing `search-web.js` alone will change nothing
+- [x] 12.2 Add a text input and submit control to the existing editor page (`index.html` / `src/web/main.js`) — landed in PR #7
+- [x] 12.3 On submit, `fetch(POST)` to `INSTRUCTION_PORT`/`INSTRUCTION_PATH` with `{ text }`; on `202`, clear the input and show a brief "sent" acknowledgement; on `400`/`500`, show the error message rather than failing silently — landed in PR #7, proven in 13.3/13.4, and seen live: the input cleared and showed "Sent"
+- [x] 12.4 The UI does not wait for the edit to appear — it only reflects the HTTP accept/reject; the actual edit is observed the same way any other participant's edit is, through the existing Yjs sync already built in Milestone A — still true after PR #8, which added the Assistant's `lastResult` ("Done" / "Couldn't do that: …") over awareness; the submit handler itself still returns on `202` without waiting
 
 ## 13. Momina — Gate A (verifiable without any of Rumaisa's Milestone B work)
 
@@ -441,14 +441,19 @@ Both tracks merged. Run all three processes (relay, web, agent — the agent
 now also listening on `INSTRUCTION_PORT`) together. Verified by running the
 system, not by inspection.
 
-- [ ] 18.1 Typing an instruction into the browser's new input and submitting it results in the document visibly rewriting, with the new text streaming in character by character rather than appearing instantly
-- [ ] 18.2 A second browser tab, not the one the instruction was typed into, sees the same live streaming edit
-- [ ] 18.3 An instruction referencing text that does not exist verbatim in the document results in a visible, non-corrupting failure after retries are exhausted — not a silently wrong edit and not a hang
-- [ ] 18.4 A factual-question-shaped instruction exercises the `search_web` stub and the agent still responds sensibly (e.g. acknowledges it cannot search yet) rather than hanging or erroring the whole turn
-- [ ] 18.5 Typing by hand in a tab while the agent is mid-edit produces no corruption and no lost characters — re-verifying Milestone A's concurrent-edit guarantee still holds with throttled multi-chunk agent inserts in the mix
-- [ ] 18.6 The document cap (design D18) does not need to be exercised for this gate to pass, but if tested, a document over ~2,000 words still produces a sensible edit against the tail of the document, not an error
-- [ ] 18.7 No `"Appended by Assistant"` marker line appears anywhere — the only agent-driven changes are ones traceable to a real typed instruction
-- [ ] 18.8 README updated with the `GROQ_API_KEY` setup step (where to get a free key, where the `.env` file goes) and the instruction endpoint's existence/port; followed from a clean checkout, it reaches "type an instruction, watch it rewrite the document live"
+**First real-Groq run (after PR #8).** Groq had retired `llama-3.3-70b-versatile`
+(`404 model_not_found` on every instruction), so nothing in this group was
+passable until PR #8 switched `GROQ_MODEL` to `openai/gpt-oss-120b`. Results
+below are from that run.
+
+- [x] 18.1 Typing an instruction into the browser's new input and submitting it results in the document visibly rewriting, with the new text streaming in character by character rather than appearing instantly — "change 'rough draft' to 'final version'" rewrote the paragraph; edits then completed in 1.4-4.6 s
+- [x] 18.2 A second browser tab, not the one the instruction was typed into, sees the same live streaming edit — a DOM observer in the second tab recorded the replacement arriving in steps over ~180 ms: `a  of` → `a fin of` → `a final  of` → `a final ver of` → `a final versio of` → `a final version of`
+- [x] 18.3 An instruction referencing text that does not exist verbatim in the document results in a visible, non-corrupting failure after retries are exhausted — not a silently wrong edit and not a hang — "change 'purple elephant' to 'blue whale'": document unchanged; after ~3 s **both** tabs showed, in red, `Couldn't do that: retries exhausted after 3 attempts: not found: "purple elephant"`. Before PR #8 this failure was silent
+- [ ] 18.4 A factual-question-shaped instruction exercises the `search_web` stub and the agent still responds sensibly (e.g. acknowledges it cannot search yet) rather than hanging or erroring the whole turn — **not met:** "what is the current population of Tokyo? add it to the document" reported `Done` and wrote population figures into the document from the model's own memory, with no source; a later run wrote different figures. Carried into Milestone C as task 25.4
+- [ ] 18.5 Typing by hand in a tab while the agent is mid-edit produces no corruption and no lost characters — re-verifying Milestone A's concurrent-edit guarantee still holds with throttled multi-chunk agent inserts in the mix — **not run yet**; carried into Milestone C as task 25.6
+- [ ] 18.6 The document cap (design D18) does not need to be exercised for this gate to pass, but if tested, a document over ~2,000 words still produces a sensible edit against the tail of the document, not an error — optional, not run
+- [x] 18.7 No `"Appended by Assistant"` marker line appears anywhere — the only agent-driven changes are ones traceable to a real typed instruction — agent restarted several times with no marker line; the string only survives in a comment in `src/agent/index.js`
+- [ ] 18.8 README updated with the `GROQ_API_KEY` setup step (where to get a free key, where the `.env` file goes) and the instruction endpoint's existence/port; followed from a clean checkout, it reaches "type an instruction, watch it rewrite the document live" — **half done:** the README section landed in PR #8 (key setup, Node 20.6+, endpoint on 3001, and `dev:agent` now loads `.env`), but nobody has followed it from a clean checkout yet
 
 
 ---
@@ -466,6 +471,14 @@ Same two-track shape as Milestones A and B:
 Each track pushes its shared interface first: Momina the config constants,
 Rumaisa `src/stt-protocol.js`. Neither waits on the other's unfinished work,
 only on a pinned contract.
+
+### Where things stand (Sept 17)
+
+| Who | Done | Still to do |
+| --- | --- | --- |
+| **Momina** | Groups 19-22 and Gate A (23.1-23.5) — branch `momina/milestone-c-browser` | 23.6: one manual run with a physical Right Ctrl and a real microphone in a normal browser (the browser pane blocks microphones) |
+| **Rumaisa** | 24.1 (written by Track A to the pin — please review) | 24.2-24.5 — **the token route (24.3) is the blocker**: until it exists, push-to-talk shows an error instead of transcribing. Then 25.x (harness, and the Milestone B carry-overs 25.4-25.6) and Gate B (26.x) |
+| **Both** | — | Milestone C acceptance (27.x), once 24.3 is merged. Milestone B leftovers: 18.4 (→ 25.4), 18.5 (→ 25.6), 18.8's clean-checkout run, 15.5 (→ 25.5) |
 
 ---
 
@@ -546,31 +559,46 @@ always-on listening, no Tavily, no AssemblyAI Voice Agent API or LLM Gateway.
 
 ## 19. Momina — Shared config and contract handoff
 
-- [ ] 19.1 Add the `STT_*` and `PTT_KEY_CODE` constants to `src/config.js` exactly as pinned, each with a one-line comment naming the design decision it implements
-- [ ] 19.2 Add `ASSEMBLYAI_API_KEY=` to `.env.example` with a comment: free-plan key from the AssemblyAI dashboard, server-side only, never committed
-- [ ] 19.3 Commit and push 19.1–19.2 ahead of the rest of Track A — this unblocks Rumaisa's protocol module and token endpoint
+- [x] 19.1 Add the `STT_*` and `PTT_KEY_CODE` constants to `src/config.js` exactly as pinned, each with a one-line comment naming the design decision it implements
+- [x] 19.2 Add `ASSEMBLYAI_API_KEY=` to `.env.example` with a comment: free-plan key from the AssemblyAI dashboard, server-side only, never committed
+- [ ] 19.3 Commit and push 19.1–19.2 ahead of the rest of Track A — this unblocks Rumaisa's protocol module and token endpoint — **not done as a separate early push**; the constants land in the same branch as the rest of Track A
+
+**Note on 24.1 (added by the Track A pass, not by Rumaisa).** `src/stt-protocol.js`
+is Rumaisa's to own, but Track A's `stt.js` cannot run without it, so it was
+written here exactly to the pinned contract — the same relationship
+`typing.js` had to Track B in Milestone B. One additive export beyond the pin:
+`latestTurns(turns)`, the per-`turn_order` dedupe that `assembleUtterance()`
+already needed, reused by `stt.js` for ghost text. 24.1's early push and 24.2's
+offline proofs remain Rumaisa's.
+
+**Measured before any Gate A work: the AssemblyAI key and free plan.** A token
+request returned `200` in 1,526 ms; the socket opened in 814 ms and sent `Begin`
+1,518 ms after connecting, reporting `model: universal-3-5-pro`; `ForceEndpoint`
+then `Terminate` produced `Termination` and close code `1000 Session Ended`.
+Roughly **3 s from nothing to ready** — which is why the pre-`Begin` buffer
+(21.2) and the warm session (21.4) are not optional.
 
 ## 20. Momina — Microphone capture and PCM16 worklet
 
-- [ ] 20.1 Create `src/web/pcm-worklet.js`: an `AudioWorkletProcessor` that downsamples from `sampleRate` (the context's native rate) to `STT_SAMPLE_RATE` with a box filter, clamps, converts to Int16 little-endian, and posts fixed `STT_FRAME_SAMPLES`-sample `ArrayBuffer`s as transferables (design D21)
-- [ ] 20.2 Create `src/web/mic.js` exporting `startMic(onFrame)` / `stopMic()`: `getUserMedia` with `channelCount: 1`, `echoCancellation`, `noiseSuppression` and `autoGainControl` all `true`; an `AudioContext` at the native rate; the worklet loaded via Vite's `?url` import
-- [ ] 20.3 Show microphone permission denial or a missing device as a visible message in the transcript strip, not a console-only error
-- [ ] 20.4 Assert at startup that every emitted frame is exactly `STT_FRAME_SAMPLES * 2` bytes, and log the native rate and the downsampling ratio once — the brief's "Garbled or empty transcripts" check
+- [x] 20.1 Create `src/web/pcm-worklet.js`: an `AudioWorkletProcessor` that downsamples from `sampleRate` (the context's native rate) to `STT_SAMPLE_RATE` with a box filter, clamps, converts to Int16 little-endian, and posts fixed `STT_FRAME_SAMPLES`-sample `ArrayBuffer`s as transferables (design D21) — the node is created with `numberOfOutputs: 0`, so the graph still pulls it without wiring it to the speakers
+- [x] 20.2 Create `src/web/mic.js` exporting `startMic(onFrame)` / `stopMic()`: `getUserMedia` with `channelCount: 1`, `echoCancellation`, `noiseSuppression` and `autoGainControl` all `true`; an `AudioContext` at the native rate; the worklet loaded via Vite's `?url` import — constraints confirmed on the actual `getUserMedia` call. In `vite build` the worklet is small enough to be inlined as a `data:text/javascript` URL; confirmed Chrome 152 loads a worklet module from that form
+- [x] 20.3 Show microphone permission denial or a missing device as a visible message in the transcript strip, not a console-only error — a real click on the button in a browser with the microphone blocked showed "Microphone access is blocked. Allow it in the browser address bar, then try again." in red. Also closes the just-opened session immediately rather than leaving it billed for 60 s (found while running this check)
+- [x] 20.4 Assert at startup that every emitted frame is exactly `STT_FRAME_SAMPLES * 2` bytes, and log the native rate and the downsampling ratio once — the brief's "Garbled or empty transcripts" check — observed `[mic] native 48000 Hz → 16000 Hz (ratio 3.0000), 800-sample frames`; no size error across 123+ frames
 
 ## 21. Momina — Browser streaming client
 
-- [ ] 21.1 Create `src/web/stt.js`: on first press, `fetch` a token from `STT_TOKEN_PATH`, open `new WebSocket(buildStreamUrl(token))` with `binaryType = 'arraybuffer'`; on a non-200 token response, show its `message` (design D25)
-- [ ] 21.2 Buffer frames captured before `Begin` and flush them in order when it arrives; cap the buffer at 5 s and fail the press visibly beyond that (design D20)
-- [ ] 21.3 Send frames only while the press is active; on release, send `FORCE_ENDPOINT` and resolve the press with `assembleUtterance()` once the last turn's `end_of_turn` arrives or `STT_FINAL_WAIT_MS` passes, logging a warning on timeout (design D23)
-- [ ] 21.4 Keep the session open between presses; send `TERMINATE` after `STT_IDLE_CLOSE_MS` with no press and on `pagehide`; reopen transparently on the next press after a close or socket error (design D20)
-- [ ] 21.5 Log per press, on one line: key-down → first partial (ms), key-up → final (ms), final text length — the numbers Gate B and joint acceptance read off
+- [x] 21.1 Create `src/web/stt.js`: on first press, `fetch` a token from `STT_TOKEN_PATH`, open `new WebSocket(buildStreamUrl(token))` with `binaryType = 'arraybuffer'`; on a non-200 token response, show its `message` (design D25)
+- [x] 21.2 Buffer frames captured before `Begin` and flush them in order when it arrives; cap the buffer at 5 s and fail the press visibly beyond that (design D20)
+- [x] 21.3 Send frames only while the press is active; on release, send `FORCE_ENDPOINT` and resolve the press with `assembleUtterance()` once the last turn's `end_of_turn` arrives or `STT_FINAL_WAIT_MS` passes, logging a warning on timeout (design D23) — **one addition to D23:** if every turn in the press has *already* ended at release (the speaker paused before letting go), `ForceEndpoint` may have nothing to end and return nothing, so the wait is shortened to `ENDED_GRACE_MS` (500 ms) instead of the full 1,500 ms, and extended back to the full wait if a new partial arrives. Without this, a pause before release alone would blow the 700 ms budget
+- [x] 21.4 Keep the session open between presses; send `TERMINATE` after `STT_IDLE_CLOSE_MS` with no press and on `pagehide`; reopen transparently on the next press after a close or socket error (design D20)
+- [x] 21.5 Log per press, on one line: key-down → first partial (ms), key-up → final (ms), final text length — the numbers Gate B and joint acceptance read off — e.g. `[stt] press: key-down→first partial 548 ms, key-up→final 168 ms, 33 chars`
 
 ## 22. Momina — Push-to-talk and ghost text
 
-- [ ] 22.1 Add a transcript strip above the instruction bar and a hold-to-talk button to `index.html`, styled in `src/web/editor.css` (partial = faint, final = solid)
-- [ ] 22.2 Wire `PTT_KEY_CODE` keydown/keyup (ignoring `event.repeat`), `window` `blur`, and pointer down/up with pointer capture on the button, all into one press start/end path (design D22)
-- [ ] 22.3 Render each partial `Turn` as ghost text during the press; never write it into the `Y.Doc` (design D24)
-- [ ] 22.4 On a non-empty final: show it solid, put it in the instruction input, and submit it through the existing form path so the status area and `lastResult` reporting work unchanged; on empty, show "Didn't catch that" and submit nothing
+- [x] 22.1 Add a transcript strip above the instruction bar and a hold-to-talk button to `index.html`, styled in `src/web/editor.css` (partial = faint, final = solid) — the strip and the existing instruction form now share one fixed `.dock` footer
+- [x] 22.2 Wire `PTT_KEY_CODE` keydown/keyup (ignoring `event.repeat`), `window` `blur`, and pointer down/up with pointer capture on the button, all into one press start/end path (design D22)
+- [x] 22.3 Render each partial `Turn` as ghost text during the press; never write it into the `Y.Doc` (design D24) — `stt.js` and `main.js` have no reference to the `Y.Doc`; ghost text only sets the strip's `textContent`
+- [x] 22.4 On a non-empty final: show it solid, put it in the instruction input, and submit it through the existing form path so the status area and `lastResult` reporting work unchanged; on empty, show "Didn't catch that" and submit nothing — submits with `instructionForm.requestSubmit()`, so the Milestone B submit handler runs untouched
 
 ## 23. Momina — Gate A (verifiable without any of Rumaisa's Milestone C work)
 
@@ -578,16 +606,36 @@ Uses a throwaway mock (a few lines on the existing `ws` package, not committed
 as product code) that serves a fake token and a fake streaming socket, with
 `STT_WS_URL` pointed at it locally and not committed.
 
-- [ ] 23.1 The mock logs every binary frame it receives: all are exactly 1,600 bytes, arrive roughly every 50 ms while the key is held, and stop within one frame of release
-- [ ] 23.2 Frames captured before the mock sends `Begin` (delay it 500 ms) arrive first and in order — no clipped start
-- [ ] 23.3 Saving 3 s of received frames as a 16 kHz mono WAV plays back as clear, normal-pitch speech — proves the downsampling is right
-- [ ] 23.4 Scripted partial `Turn`s render as ghost text; a scripted `end_of_turn` after `ForceEndpoint` renders solid and reaches `POST /instruction` with `{ "text": ... }`; two `end_of_turn`s in one press are joined into one instruction
-- [ ] 23.5 The mock receives `Terminate` after 60 s idle and on tab close; the mock returning `503` on the token route shows its message in the transcript strip
-- [ ] 23.6 Right Ctrl, the on-screen button, and alt-tabbing away mid-press each start and end a press correctly, and holding the key never types into the editor
+How the audio was produced: the browser pane blocks real microphones, so
+`getUserMedia` was replaced in the page with a `MediaStream` playing a
+synthesized recording of "Change rough draft to final draft." (2.83 s, played
+through a 48 kHz `AudioContext`). Everything downstream of `getUserMedia` —
+the worklet, framing, session, protocol and UI — is the real code. Presses were
+driven by dispatching `ControlRight` keydown/keyup events on `window`.
+
+- [x] 23.1 The mock logs every binary frame it receives: all are exactly 1,600 bytes, arrive roughly every 50 ms while the key is held, and stop within one frame of release — 61 frames for a 3.1 s hold, 0 wrong-sized; median gap between live frames 50 ms; last frame 10 ms before `ForceEndpoint`
+- [x] 23.2 Frames captured before the mock sends `Begin` (delay it 500 ms) arrive first and in order — no clipped start — `Begin` sent 510 ms after connect; the 10 buffered frames arrived as a burst 16 ms after `Begin`, then live frames at 50 ms
+- [x] 23.3 Saving 3 s of received frames as a 16 kHz mono WAV plays back as clear, normal-pitch speech — proves the downsampling is right — **verified more strictly than by ear:** the 3.10 s WAV the mock received (16 kHz, mono, 16-bit, peak 31329) was streamed to the **real** AssemblyAI (`universal-3-5-pro`), which returned `end_of_turn #0: "Change rough draft to final draft."` — word-for-word correct
+- [x] 23.4 Scripted partial `Turn`s render as ghost text; a scripted `end_of_turn` after `ForceEndpoint` renders solid and reaches `POST /instruction` with `{ "text": ... }`; two `end_of_turn`s in one press are joined into one instruction — ghost text grew word by word ("change" → … → "change rough draft to final draft") and turned solid 170 ms after release; the mock received exactly one `POST /instruction` with `{"text":"change rough draft to final draft"}`. Split into two turns mid-press: one instruction, `"change rough draft. to final draft."`. A second press reused the same session (one session on the mock) and showed its first partial after 300 ms instead of ~550 ms
+- [x] 23.5 The mock receives `Terminate` after 60 s idle and on tab close; the mock returning `503` on the token route shows its message in the transcript strip — `Terminate` 61 s after the last frame; `Terminate` on reloading the tab; `503` showed "ASSEMBLYAI_API_KEY is not set on the agent process" in red
+- [ ] 23.6 Right Ctrl, the on-screen button, and alt-tabbing away mid-press each start and end a press correctly, and holding the key never types into the editor — **partly verified:** `ControlRight` keydown/keyup (synthetic events), a real mouse click on the button, and a `window` `blur` mid-press (press ended, final submitted once) all work. **Not verified with a physical Right Ctrl key or a real microphone** — the browser pane blocks microphones and synthetic key events cannot type. Needs one manual run on a real browser
+
+**Gate A — one real bug found and fixed.** After the streaming socket dropped
+and `stt.js` reconnected, the first turn of the next press was silently lost:
+the new session numbers its turns from `0` again, but the "already claimed by
+an earlier press" guard still held the previous session's highest
+`turn_order`, so turn `0` looked late and was discarded. Only the tail of the
+sentence ("to final draft.") was submitted. `openSession()` now resets that
+guard, and the same reconnect-then-press run returns the whole sentence.
+
+**A testing note, not a code issue.** Stopping the mock through the preview
+tool did not kill its Node process, so a "restart" silently kept the old mock
+(and its log) alive. Kill the process that owns the port before trusting a
+restarted mock's numbers.
 
 ## 24. Rumaisa — Shared protocol module and token endpoint
 
-- [ ] 24.1 Create `src/stt-protocol.js` exactly as pinned in the shared contract; push it ahead of the rest of Track B — Momina's `stt.js` imports it
+- [x] 24.1 Create `src/stt-protocol.js` exactly as pinned in the shared contract; push it ahead of the rest of Track B — Momina's `stt.js` imports it — **created by the Track A pass** so `stt.js` could run (see the note under group 19); matches the pin, plus one additive export, `latestTurns()`. Rumaisa: review it, and 24.2's offline proofs are still yours
 - [ ] 24.2 Prove `assembleUtterance()` offline against hand-written `Turn` arrays: a single turn; two end-of-turns joined in order; a formatted repeat superseding the unformatted one for the same `turn_order`; partials-only returns an empty string
 - [ ] 24.3 Add `GET {STT_TOKEN_PATH}` to the agent's existing `http` server per the token contract: calls AssemblyAI's token endpoint with the `authorization` header, returns `{ token }` with `Cache-Control: no-store` and CORS; `OPTIONS` handled the same way as `/instruction`
 - [ ] 24.4 With `ASSEMBLYAI_API_KEY` unset: log one startup warning naming the variable, keep serving `/instruction`, and return `503` with the pinned message from the token route (design D25)
