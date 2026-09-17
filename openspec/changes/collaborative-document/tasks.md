@@ -322,7 +322,13 @@ the existing `readDoc()`/`getXmlFragment(FIELD)` machinery.
   `202 { "accepted": true }`, returned before the orchestrator necessarily
   finishes. Errors: `400` for a missing/empty `text`, `500` if the
   orchestrator throws before accepting — both with a JSON `{ "message": string }`
-  body. CORS allows `http://localhost:5173`.
+  body. CORS allows `http://localhost:5173`. **Must also handle the `OPTIONS`
+  preflight** the browser sends ahead of any JSON-body `POST` — respond `2xx`
+  with `Access-Control-Allow-Origin: http://localhost:5173`,
+  `Access-Control-Allow-Methods: POST`, `Access-Control-Allow-Headers:
+  Content-Type`. Measured during Gate A (Momina's mock server): without this,
+  the browser never sends the real `POST` at all, it just reports
+  `Failed to fetch` — see design D16's Gate A correction note.
 - **`src/agent/typing.js` public signatures** (Momina pushes this early,
   Rumaisa's `edit_doc` imports it without waiting for the throttling to be
   tuned): `typeIntoNewParagraph(doc, text, opts)` and
@@ -365,10 +371,20 @@ the existing `readDoc()`/`getXmlFragment(FIELD)` machinery.
 
 ## 13. Momina — Gate A (verifiable without any of Rumaisa's Milestone B work)
 
-- [ ] 13.1 Prove `typing.js` directly against the running relay with a standalone Node script (no browser, no Groq, no orchestrator) — two Node clients watching the same room converge on identical text after a throttled multi-chunk insert, with intermediate partial states observable mid-stream
-- [ ] 13.2 Prove the `search_web` stub by calling its handler directly with a sample query and checking the fixed response shape
-- [ ] 13.3 Prove the browser UI sends the right request by pointing it at a minimal mock HTTP server written just for this gate (a few lines, not the real orchestrator) that asserts method, path, and body shape, and returns `202`
-- [ ] 13.4 Prove the UI's error handling by pointing the mock server at a `400`/`500` response and confirming the error is visible, not swallowed
+- [x] 13.1 Prove `typing.js` directly against the running relay with a standalone Node script (no browser, no Groq, no orchestrator) — two Node clients watching the same room converge on identical text after a throttled multi-chunk insert, with intermediate partial states observable mid-stream — PASSED: 16 incremental snapshots observed by the second client (`""`, `"The"`, `"The qu"`, `"The quick"`, `"The quick br"`, ...), both clients converged on byte-identical final text; `typeIntoParagraph` at a mid-string offset also verified correct
+- [x] 13.2 Prove the `search_web` stub by calling its handler directly with a sample query and checking the fixed response shape — PASSED: `{"available":false,"message":"Web search is not available yet."}`
+- [x] 13.3 Prove the browser UI sends the right request by pointing it at a minimal mock HTTP server written just for this gate (a few lines, not the real orchestrator) that asserts method, path, and body shape, and returns `202` — PASSED (after the CORS-preflight fix below): method `POST`, path `/instruction`, body `{"text":"tighten the second paragraph"}`; input cleared, status showed "Sent"
+- [x] 13.4 Prove the UI's error handling by pointing the mock server at a `400`/`500` response and confirming the error is visible, not swallowed — PASSED: `400` body `{"message":"text is required"}` rendered as "text is required" in the status area; `500` likewise rendered its message
+
+**Gate A passed — one real finding.** The first run of 13.3 failed with
+`Failed to fetch` / a CORS error in the browser console: `fetch()` with a
+JSON `Content-Type` header triggers a preflight `OPTIONS` request that
+neither the original design D16 note nor the first mock server accounted
+for. Fixed the mock server to answer `OPTIONS` with `204` plus
+`Access-Control-Allow-Methods`/`-Headers`, confirmed the identical browser
+request then succeeds. This is not just a test artifact — the **real**
+instruction endpoint (Rumaisa's group 16) has the same requirement, added
+there as task 16.5 and recorded in design.md D16.
 
 ## 14. Rumaisa — Groq client
 

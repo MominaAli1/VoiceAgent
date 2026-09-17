@@ -20,6 +20,19 @@
       <div id="editor"></div>
     </main>
 
+    <form class="instruction-bar" id="instruction-form">
+      <input
+        id="instruction-input"
+        type="text"
+        placeholder="Tell the agent what to do…"
+        aria-label="Typed instruction for the agent"
+        maxlength="500"
+        autocomplete="off"
+      />
+      <button id="instruction-submit" type="submit">Send</button>
+      <span id="instruction-status" class="instruction-status" role="status"></span>
+    </form>
+
     <script type="module" src="/src/web/main.js"></script>
   </body>
 </html>
