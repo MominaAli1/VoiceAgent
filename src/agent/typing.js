@@ -1,13 +1,19 @@
 /**
- * Throttled insertion — new text streams into the document a few characters
- * at a time instead of appearing as one instant write, so it reads as typed
- * rather than pasted (design.md D17, Milestone B).
+ * Throttled insertion into the shared Yjs document.
  *
- * Used by both the append path (typeIntoNewParagraph) and edit_doc's
- * replacement step (typeIntoParagraph, Rumaisa's Track B — not built yet).
- * This module has no dependency on Groq or the orchestrator; it only
- * touches the Y.Doc via the same getXmlFragment(FIELD) machinery as
- * doc-client.js and seed-harness.js.
+ * --- Milestone B shared-contract handoff ---
+ * Per the pinned contract in
+ * openspec/changes/collaborative-document/tasks.md, this file's two public
+ * signatures are pushed early so Track B's `edit_doc` (task 15) can import
+ * them without waiting for the throttling to be tuned. Defaults below match
+ * design D17 exactly (chunk size 3, delay 35ms); tuning those defaults for
+ * feel, and Gate A (task 13.1)'s standalone proof against the relay, remain
+ * Momina's Track A work and are not performed here.
+ *
+ * Each chunk is inserted as its own `Y.XmlText.insert` call — its own Yjs
+ * transaction — so remote peers see the text arrive incrementally rather
+ * than as a single write. Deletion is never throttled (design D17); only
+ * insertion streams in chunks.
  */
 
 import * as Y from 'yjs';
@@ -16,100 +22,92 @@ import { FIELD } from '../config.js';
 const DEFAULT_CHUNK_SIZE = 3;
 const DEFAULT_DELAY_MS = 35;
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Create a new paragraph at the end of the document and stream `text` into
- * it a few characters at a time.
+ * Split `text` into chunks of `chunkSize` characters, preserving order.
+ * @param {string} text
+ * @param {number} chunkSize
+ * @returns {string[]}
+ */
+function chunk(text, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < text.length; i += chunkSize) {
+    chunks.push(text.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+/**
+ * Create a new paragraph at the end of the shared fragment, then stream
+ * `text` into its Y.XmlText in chunks.
  *
  * @param {Y.Doc} doc
  * @param {string} text
- * @param {{ chunkSize?: number, delayMs?: number }} [opts]
+ * @param {{ chunkSize?: number, delayMs?: number, field?: string }} [opts]
  * @returns {Promise<void>} resolves once every chunk has been inserted
  */
 export async function typeIntoNewParagraph(doc, text, opts = {}) {
-  const { chunkSize = DEFAULT_CHUNK_SIZE, delayMs = DEFAULT_DELAY_MS } = opts;
+  const { chunkSize = DEFAULT_CHUNK_SIZE, delayMs = DEFAULT_DELAY_MS, field = FIELD } = opts;
 
-  const fragment = doc.getXmlFragment(FIELD);
+  const fragment = doc.getXmlFragment(field);
   const paragraph = new Y.XmlElement('paragraph');
-  // Insert an empty text node structurally first (append semantics, same as
-  // doc-client.js's appendText), then stream characters into it below —
-  // never a bare text node at fragment level.
   const textNode = new Y.XmlText();
   paragraph.insert(0, [textNode]);
   fragment.insert(fragment.length, [paragraph]);
 
-  await typeChunks(textNode, 0, text, chunkSize, delayMs);
+  await streamInto(textNode, text, chunkSize, delayMs);
 }
 
 /**
- * Stream `text` into an existing paragraph's text node at `offset`, a few
- * characters at a time. Used by edit_doc after it deletes the matched range
- * (deletion itself is instant and un-throttled — only insertion streams).
+ * Insert `text` into an existing paragraph's Y.XmlText at `offset`, in
+ * chunks, starting immediately after `offset`.
  *
  * @param {Y.Doc} doc
- * @param {number} paragraphIndex index of the target paragraph within the
- *   document fragment
- * @param {number} offset character offset within the paragraph's own text
- *   to start inserting at
+ * @param {number} paragraphIndex - Index of the paragraph within the shared fragment
+ * @param {number} offset - Character offset within the paragraph's text to insert after
  * @param {string} text
- * @param {{ chunkSize?: number, delayMs?: number }} [opts]
+ * @param {{ chunkSize?: number, delayMs?: number, field?: string }} [opts]
  * @returns {Promise<void>} resolves once every chunk has been inserted
  */
 export async function typeIntoParagraph(doc, paragraphIndex, offset, text, opts = {}) {
-  const { chunkSize = DEFAULT_CHUNK_SIZE, delayMs = DEFAULT_DELAY_MS } = opts;
+  const { chunkSize = DEFAULT_CHUNK_SIZE, delayMs = DEFAULT_DELAY_MS, field = FIELD } = opts;
 
-  const fragment = doc.getXmlFragment(FIELD);
+  const fragment = doc.getXmlFragment(field);
   const paragraph = fragment.get(paragraphIndex);
   if (!(paragraph instanceof Y.XmlElement)) {
     throw new Error(`typeIntoParagraph: no paragraph at index ${paragraphIndex}`);
   }
-  const textNode = soleTextNode(paragraph);
 
-  await typeChunks(textNode, offset, text, chunkSize, delayMs);
+  const textNode = paragraph.get(0);
+  if (!(textNode instanceof Y.XmlText)) {
+    throw new Error(`typeIntoParagraph: paragraph ${paragraphIndex} has no Y.XmlText child`);
+  }
+
+  await streamInto(textNode, text, chunkSize, delayMs, offset);
 }
 
 /**
- * Insert `text` into `textNode` starting at `startOffset`, one chunk at a
- * time, each its own Yjs transaction (its own `insert` call), waiting
- * `delayMs` between chunks. This — not one instant insert — is the entire
- * point of this module: remote peers observe each chunk arrive over the
- * existing update broadcast, so no separate "typing indicator" protocol is
- * needed (design D17).
+ * Insert `text` into `textNode` in chunks, each its own transaction.
+ * @param {Y.XmlText} textNode
+ * @param {string} text
+ * @param {number} chunkSize
+ * @param {number} delayMs
+ * @param {number} [startOffset] - Defaults to the end of the current text
  */
-async function typeChunks(textNode, startOffset, text, chunkSize, delayMs) {
-  let offset = startOffset;
-  for (let i = 0; i < text.length; i += chunkSize) {
-    const chunk = text.slice(i, i + chunkSize);
-    textNode.insert(offset, chunk);
-    offset += chunk.length;
-    if (i + chunkSize < text.length) {
+async function streamInto(textNode, text, chunkSize, delayMs, startOffset) {
+  let position = startOffset ?? textNode.length;
+  const chunks = chunk(text, chunkSize);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const piece = chunks[i];
+    textNode.insert(position, piece);
+    position += piece.length;
+
+    if (i < chunks.length - 1 && delayMs > 0) {
       await sleep(delayMs);
     }
   }
-}
-
-/**
- * Find the paragraph's single text-bearing child. Throws rather than
- * silently picking one if there's more than one (or none) — per design D15,
- * a paragraph with more than one Y.XmlText child (e.g. from future
- * formatting/marks) is a loud error, not something to guess through.
- */
-function soleTextNode(paragraph) {
-  let found = null;
-  for (let i = 0; i < paragraph.length; i++) {
-    const child = paragraph.get(i);
-    if (child instanceof Y.XmlText) {
-      if (found) {
-        throw new Error('soleTextNode: paragraph has more than one text-bearing child');
-      }
-      found = child;
-    }
-  }
-  if (!found) {
-    throw new Error('soleTextNode: paragraph has no text-bearing child');
-  }
-  return found;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

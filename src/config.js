@@ -39,25 +39,27 @@ export const WS_URL = 'ws://[::1]:1234';
 export const FIELD = 'default';
 
 /**
- * The Groq model called by the server-side agent brain (Milestone B).
+ * --- Milestone B additions ---
  *
- * Groq exposes an OpenAI-compatible chat-completions + tools API. This
- * default is chosen for tool-calling reliability among Groq's free-tier
- * catalog — see design.md D13. `llm-client.js` MUST read the model from
- * here, never hardcode a model string, so the two stay in sync by
- * construction the same way ROOM/WS_URL/FIELD do for the document side.
+ * Pinned by the shared contract in openspec/changes/collaborative-document/tasks.md
+ * so Track B (Rumaisa) is never blocked waiting on the rest of Track A. These
+ * three values are the contract handoff only; Momina's remaining Track A work
+ * (typed-instruction UI, `search_web` stub wiring, `.env.example`, Gate A) is
+ * separate and unaffected by this file.
+ */
+
+/**
+ * The Groq model `llm-client.js` calls. Must stay in sync with whatever
+ * model `llm-client.js` actually calls — never hardcode a model string
+ * there, import it from here instead.
  */
 export const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 /**
- * Port the server-side agent process listens on for typed instructions.
- *
- * Separate from both the relay (1234) and the Vite dev server (5173).
- * See design.md D16 for why this is a plain HTTP endpoint rather than a
- * Yjs Y.Map.
+ * Port the agent process's instruction HTTP endpoint listens on. Separate
+ * from both the relay (1234) and Vite (5173). See design.md D16.
  */
 export const INSTRUCTION_PORT = 3001;
 
-/** The instruction endpoint's path. POST { text: string } here. */
+/** Path of the instruction HTTP endpoint. See design.md D16. */
 export const INSTRUCTION_PATH = '/instruction';
-
