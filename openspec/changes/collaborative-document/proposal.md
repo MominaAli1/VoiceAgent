@@ -94,3 +94,101 @@ change the document surface itself.
 - **New code:** `src/agent/orchestrator.js`, `src/agent/llm-client.js`, `src/agent/typing.js`, an extension to `src/agent/doc-client.js` for `edit_doc`, an HTTP listener added to `src/agent/index.js`, and a text-input control added to the browser editor page.
 - **Existing code affected:** `src/agent/doc-client.js` (new export), `src/agent/index.js` (gains the HTTP listener alongside its existing Yjs connection and drops the hardcoded marker-line append in favour of the orchestrator loop), `index.html`/`src/web/main.js` (new input control), `src/config.js` (new constants), README (new setup step for `GROQ_API_KEY`, new run-time behavior to document).
 - **Downstream:** Days 7-9 (speech in) will replace the typed-instruction UI's text input with a transcript from AssemblyAI, but is expected to call the *same* `orchestrator.handleInstruction(instruction)` entry point pinned here — keeping that signature stable is what makes this change's work reusable rather than throwaway.
+
+# Milestone C — Hearing You (Speech In)
+
+## Why
+
+The brief's plan: "Days 7-9 - Hearing you (speech in)." Milestone B proved the
+agent brain against a typed instruction, and Milestone B's own proposal
+anticipated exactly this step — speech in "will replace the typed-instruction
+UI's text input with a transcript from AssemblyAI, but is expected to call the
+*same* entry point." This change builds that transcript path and nothing
+after it: the agent still answers only through the document, not a voice.
+
+The gate is the brief's: **hold a key, speak, release, final transcript in
+the console under a second** — and, because Milestone B is already in place,
+that transcript then rewrites the document exactly as a typed instruction
+does.
+
+This path is AssemblyAI's **Realtime Speech-to-Text API** with our own
+orchestration, not its bundled Voice Agent API. The brief rules the bundled
+product out explicitly: the agent must reach into the document mid-turn, and
+"you own the gap between transcript and brain." The account's free plan
+($150 credit, 333 streaming hours at list price) covers development and
+rehearsal many times over.
+
+## What Changes
+
+- **Microphone capture** (`src/web/mic.js`, `src/web/pcm-worklet.js`).
+  `getUserMedia` with echo cancellation, noise suppression and auto gain on.
+  An `AudioWorklet` downsamples from the device's native rate to 16 kHz mono
+  and emits little-endian PCM16 in fixed 50 ms frames (800 samples, 1,600
+  bytes) — the format AssemblyAI's streaming socket declares.
+- **Browser streaming client** (`src/web/stt.js`). Fetches a short-lived
+  token from the agent process, opens AssemblyAI's v3 streaming WebSocket
+  directly from the browser, sends audio only while push-to-talk is held,
+  sends `ForceEndpoint` on release, assembles the final utterance, and
+  terminates the session after a short idle window (design D20).
+- **Push-to-talk and ghost text** (`index.html`, `src/web/main.js`). Holding
+  the push-to-talk key (or an on-screen hold button) captures speech; partial
+  transcripts render as faint ghost text in a transcript strip above the
+  instruction bar — never inside the shared document. On release, the final
+  transcript is shown solid and submitted through the existing
+  `POST /instruction` contract, unchanged.
+- **Token endpoint on the agent process** (`src/agent/index.js`).
+  `GET /stt-token` exchanges the server-side `ASSEMBLYAI_API_KEY` for a
+  temporary streaming token. The permanent key never reaches the browser.
+- **Shared streaming protocol module** (`src/stt-protocol.js`). Pure functions
+  used by both the browser client and a Node test harness: build the socket
+  URL, parse server messages, and assemble one utterance from `Turn`
+  messages. One implementation, proven twice.
+- **Node streaming harness** (`src/agent/stt-harness.js`). Streams a WAV
+  fixture to AssemblyAI at real-time pace using a token from the endpoint,
+  prints every message, and can optionally submit the result to
+  `/instruction` — proving the speech path with no browser and no microphone.
+- **Milestone B carry-over.** The `search_web` stub is not being called for
+  factual questions (the model answers from memory and writes it into the
+  document); tasks 15.5 and 18.5 were never run. These close before Milestone
+  C's joint acceptance so a voice bug is never confused with a brain bug.
+
+Explicitly out of scope: text-to-speech (browser voice or ElevenLabs),
+barge-in/interruption, `speaking`/`cancelled` orchestrator state, always-on
+listening, real Tavily search, and AssemblyAI's Voice Agent API or LLM
+Gateway. The agent does not talk back in this change.
+
+## Capabilities
+
+### New Capabilities
+
+- `speech-input`: push-to-talk microphone capture, the 16 kHz PCM16 audio
+  pipeline, the streaming transcription session and its lifecycle, partial
+  transcripts as ghost text, and delivery of the final transcript to the
+  existing instruction entry point.
+
+### Modified Capabilities
+
+None. `agent-brain`'s instruction contract is reused verbatim; a spoken
+instruction is indistinguishable from a typed one once it reaches
+`POST /instruction`.
+
+## Impact
+
+- **New dependencies:** none. The browser uses the native `WebSocket`,
+  `AudioWorklet` and `getUserMedia`; the harness uses the existing `ws`
+  package and Node's built-in `fetch`.
+- **New configuration:** `ASSEMBLYAI_API_KEY` (secret, `.env`, gitignored,
+  never committed, never logged). `STT_*` and push-to-talk constants in
+  `src/config.js`.
+- **New code:** `src/stt-protocol.js`, `src/web/mic.js`,
+  `src/web/pcm-worklet.js`, `src/web/stt.js`, `src/agent/stt-harness.js`, a
+  WAV fixture under `fixtures/`.
+- **Existing code affected:** `src/agent/index.js` (new `GET /stt-token`
+  route), `index.html` / `src/web/main.js` / `src/web/editor.css` (transcript
+  strip, push-to-talk control), `src/config.js`, `.env.example`, README.
+- **Cost:** streaming is billed on how long the WebSocket stays open, not on
+  audio sent. The session lifecycle in design D20 exists to keep that close
+  to time actually spent speaking.
+- **Downstream:** Days 10-11 (talking back, barge-in) will add a `speaking`
+  state and make a push-to-talk press cancel speech first. Keeping key-down
+  handling in one place in `stt.js` is what makes that a small change.

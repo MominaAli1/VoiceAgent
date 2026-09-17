@@ -449,3 +449,180 @@ system, not by inspection.
 - [ ] 18.6 The document cap (design D18) does not need to be exercised for this gate to pass, but if tested, a document over ~2,000 words still produces a sensible edit against the tail of the document, not an error
 - [ ] 18.7 No `"Appended by Assistant"` marker line appears anywhere — the only agent-driven changes are ones traceable to a real typed instruction
 - [ ] 18.8 README updated with the `GROQ_API_KEY` setup step (where to get a free key, where the `.env` file goes) and the instruction endpoint's existence/port; followed from a clean checkout, it reaches "type an instruction, watch it rewrite the document live"
+
+
+---
+
+# Milestone C — Hearing You (Speech In)
+
+Same two-track shape as Milestones A and B:
+
+| Track | Owner | Scope | Proved by |
+| --- | --- | --- | --- |
+| A | **Momina** | Config additions, microphone capture and PCM16 worklet, browser streaming client, push-to-talk and ghost text | Gate A (group 23) — proven against a mock streaming server, without Rumaisa's token endpoint |
+| B | **Rumaisa** | Shared streaming protocol module, token endpoint, Node streaming harness, Milestone B carry-over | Gate B (group 26) — proven against real AssemblyAI with no browser and no microphone |
+| Joint | **Both** | Integration | Milestone C acceptance (group 27) |
+
+Each track pushes its shared interface first: Momina the config constants,
+Rumaisa `src/stt-protocol.js`. Neither waits on the other's unfinished work,
+only on a pinned contract.
+
+---
+
+## Tech stack restrictions (Milestone C)
+
+Binding for both tracks.
+
+**No new dependencies.** The browser uses the native `WebSocket`,
+`AudioWorklet` and `getUserMedia`. The harness uses the existing `ws` package
+and Node's built-in `fetch`. Do not add the `assemblyai` SDK, an audio or
+recording library, a resampling library, or a WAV-parsing package.
+
+**No `ScriptProcessorNode`.** It is deprecated and runs on the main thread.
+Capture goes through an `AudioWorklet` (design D21).
+
+**Declared rate equals sent rate.** Every frame sent is 16 kHz mono PCM16
+little-endian, 800 samples (50 ms). The `AudioContext` runs at the device's
+native rate; downsampling happens in the worklet only (design D21).
+
+**`ASSEMBLYAI_API_KEY` never leaves the agent process.** Not in
+`src/config.js`, not in any browser file, not in a URL, not in a log line.
+The browser only ever sees a temporary token, and the token is never logged
+either (design D19, D25).
+
+**Audio is sent only while push-to-talk is held.** Frames captured before
+`Begin` are buffered and flushed; nothing is sent between presses (design D20).
+
+**Every session is terminated.** `Terminate` after `STT_IDLE_CLOSE_MS` idle and
+on `pagehide`, and every socket connects with
+`inactivity_timeout=STT_SERVER_IDLE_TIMEOUT_S`. A session left open bills
+until AssemblyAI closes it (design D20).
+
+**Partial transcripts never touch the `Y.Doc`.** Ghost text is local UI only
+(design D24).
+
+**The instruction contract is unchanged.** A final transcript is submitted as
+`POST /instruction` with `{ "text": string }`, exactly like typed text. Do not
+add fields or a second route for voice.
+
+**Nothing from later phases.** No text-to-speech (browser voice or
+ElevenLabs), no barge-in or cancellation, no `speaking`/`cancelled` state, no
+always-on listening, no Tavily, no AssemblyAI Voice Agent API or LLM Gateway.
+
+**Carried forward:** never `ydoc.getText(FIELD)` (D1); `WS_URL` rules (D9);
+`GROQ_API_KEY` handling (D14).
+
+---
+
+## Shared contract (pinned — do not renegotiate mid-flight, Milestone C)
+
+- **`src/config.js` additions** (Momina pushes these first):
+  `STT_TOKEN_PATH` (`"/stt-token"`, served on `INSTRUCTION_PORT`),
+  `STT_WS_URL` (`"wss://streaming.assemblyai.com/v3/ws"`),
+  `STT_SAMPLE_RATE` (`16000`), `STT_FRAME_SAMPLES` (`800`),
+  `STT_SPEECH_MODEL` (`"universal-3-5-pro"`), `STT_IDLE_CLOSE_MS` (`60000`),
+  `STT_SERVER_IDLE_TIMEOUT_S` (`120`), `STT_FINAL_WAIT_MS` (`1500`),
+  `PTT_KEY_CODE` (`"ControlRight"`).
+- **Token HTTP contract** (design D19, D25): `GET {STT_TOKEN_PATH}` on
+  `INSTRUCTION_PORT`. Success: `200 { "token": string }`, with
+  `Cache-Control: no-store`. The server requests the token with
+  `expires_in_seconds=60` and `max_session_duration_seconds=3600`. Errors:
+  `503` if `ASSEMBLYAI_API_KEY` is unset, `502` if AssemblyAI rejects the
+  request — both with a JSON `{ "message": string }` body that never contains
+  the key. CORS allows `http://localhost:5173`, the same as `/instruction`.
+- **`src/stt-protocol.js`** (Rumaisa pushes this first). Environment-neutral:
+  no Node built-ins and no DOM, so the browser client and the Node harness
+  import the same file.
+  - `buildStreamUrl(token)` → `STT_WS_URL` with `sample_rate`,
+    `encoding=pcm_s16le`, `speech_model`, `inactivity_timeout` and `token`
+    query parameters, all from config.
+  - `parseServerMessage(data)` → the parsed object for `Begin`, `Turn`,
+    `SpeechStarted` and `Termination`; `null` for anything else, including
+    unparseable input. Never throws.
+  - `assembleUtterance(turns)` → a string, per design D23.
+  - `FORCE_ENDPOINT` and `TERMINATE` → the exact JSON strings to send.
+
+---
+
+## 19. Momina — Shared config and contract handoff
+
+- [ ] 19.1 Add the `STT_*` and `PTT_KEY_CODE` constants to `src/config.js` exactly as pinned, each with a one-line comment naming the design decision it implements
+- [ ] 19.2 Add `ASSEMBLYAI_API_KEY=` to `.env.example` with a comment: free-plan key from the AssemblyAI dashboard, server-side only, never committed
+- [ ] 19.3 Commit and push 19.1–19.2 ahead of the rest of Track A — this unblocks Rumaisa's protocol module and token endpoint
+
+## 20. Momina — Microphone capture and PCM16 worklet
+
+- [ ] 20.1 Create `src/web/pcm-worklet.js`: an `AudioWorkletProcessor` that downsamples from `sampleRate` (the context's native rate) to `STT_SAMPLE_RATE` with a box filter, clamps, converts to Int16 little-endian, and posts fixed `STT_FRAME_SAMPLES`-sample `ArrayBuffer`s as transferables (design D21)
+- [ ] 20.2 Create `src/web/mic.js` exporting `startMic(onFrame)` / `stopMic()`: `getUserMedia` with `channelCount: 1`, `echoCancellation`, `noiseSuppression` and `autoGainControl` all `true`; an `AudioContext` at the native rate; the worklet loaded via Vite's `?url` import
+- [ ] 20.3 Show microphone permission denial or a missing device as a visible message in the transcript strip, not a console-only error
+- [ ] 20.4 Assert at startup that every emitted frame is exactly `STT_FRAME_SAMPLES * 2` bytes, and log the native rate and the downsampling ratio once — the brief's "Garbled or empty transcripts" check
+
+## 21. Momina — Browser streaming client
+
+- [ ] 21.1 Create `src/web/stt.js`: on first press, `fetch` a token from `STT_TOKEN_PATH`, open `new WebSocket(buildStreamUrl(token))` with `binaryType = 'arraybuffer'`; on a non-200 token response, show its `message` (design D25)
+- [ ] 21.2 Buffer frames captured before `Begin` and flush them in order when it arrives; cap the buffer at 5 s and fail the press visibly beyond that (design D20)
+- [ ] 21.3 Send frames only while the press is active; on release, send `FORCE_ENDPOINT` and resolve the press with `assembleUtterance()` once the last turn's `end_of_turn` arrives or `STT_FINAL_WAIT_MS` passes, logging a warning on timeout (design D23)
+- [ ] 21.4 Keep the session open between presses; send `TERMINATE` after `STT_IDLE_CLOSE_MS` with no press and on `pagehide`; reopen transparently on the next press after a close or socket error (design D20)
+- [ ] 21.5 Log per press, on one line: key-down → first partial (ms), key-up → final (ms), final text length — the numbers Gate B and joint acceptance read off
+
+## 22. Momina — Push-to-talk and ghost text
+
+- [ ] 22.1 Add a transcript strip above the instruction bar and a hold-to-talk button to `index.html`, styled in `src/web/editor.css` (partial = faint, final = solid)
+- [ ] 22.2 Wire `PTT_KEY_CODE` keydown/keyup (ignoring `event.repeat`), `window` `blur`, and pointer down/up with pointer capture on the button, all into one press start/end path (design D22)
+- [ ] 22.3 Render each partial `Turn` as ghost text during the press; never write it into the `Y.Doc` (design D24)
+- [ ] 22.4 On a non-empty final: show it solid, put it in the instruction input, and submit it through the existing form path so the status area and `lastResult` reporting work unchanged; on empty, show "Didn't catch that" and submit nothing
+
+## 23. Momina — Gate A (verifiable without any of Rumaisa's Milestone C work)
+
+Uses a throwaway mock (a few lines on the existing `ws` package, not committed
+as product code) that serves a fake token and a fake streaming socket, with
+`STT_WS_URL` pointed at it locally and not committed.
+
+- [ ] 23.1 The mock logs every binary frame it receives: all are exactly 1,600 bytes, arrive roughly every 50 ms while the key is held, and stop within one frame of release
+- [ ] 23.2 Frames captured before the mock sends `Begin` (delay it 500 ms) arrive first and in order — no clipped start
+- [ ] 23.3 Saving 3 s of received frames as a 16 kHz mono WAV plays back as clear, normal-pitch speech — proves the downsampling is right
+- [ ] 23.4 Scripted partial `Turn`s render as ghost text; a scripted `end_of_turn` after `ForceEndpoint` renders solid and reaches `POST /instruction` with `{ "text": ... }`; two `end_of_turn`s in one press are joined into one instruction
+- [ ] 23.5 The mock receives `Terminate` after 60 s idle and on tab close; the mock returning `503` on the token route shows its message in the transcript strip
+- [ ] 23.6 Right Ctrl, the on-screen button, and alt-tabbing away mid-press each start and end a press correctly, and holding the key never types into the editor
+
+## 24. Rumaisa — Shared protocol module and token endpoint
+
+- [ ] 24.1 Create `src/stt-protocol.js` exactly as pinned in the shared contract; push it ahead of the rest of Track B — Momina's `stt.js` imports it
+- [ ] 24.2 Prove `assembleUtterance()` offline against hand-written `Turn` arrays: a single turn; two end-of-turns joined in order; a formatted repeat superseding the unformatted one for the same `turn_order`; partials-only returns an empty string
+- [ ] 24.3 Add `GET {STT_TOKEN_PATH}` to the agent's existing `http` server per the token contract: calls AssemblyAI's token endpoint with the `authorization` header, returns `{ token }` with `Cache-Control: no-store` and CORS; `OPTIONS` handled the same way as `/instruction`
+- [ ] 24.4 With `ASSEMBLYAI_API_KEY` unset: log one startup warning naming the variable, keep serving `/instruction`, and return `503` with the pinned message from the token route (design D25)
+- [ ] 24.5 Grep the repo and a full `dev:agent` log for the key and for a returned token — neither appears in any log line, response body other than `{ token }`, or committed file
+
+## 25. Rumaisa — Streaming harness and Milestone B carry-over
+
+- [ ] 25.1 Create `src/agent/stt-harness.js`: reads a 16 kHz mono PCM16 WAV (skip the 44-byte header after checking its format fields), gets a token from `STT_TOKEN_PATH`, connects with `buildStreamUrl()`, streams 800-sample frames at real-time pace, sends `FORCE_ENDPOINT` then `TERMINATE`, and prints every parsed message with a timestamp
+- [ ] 25.2 Add a `--submit` flag that POSTs `assembleUtterance()`'s result to `/instruction`
+- [ ] 25.3 Record a fixture under `fixtures/` (≤ 5 s, 16 kHz mono PCM16 WAV) saying an instruction that matches a known seeded document, e.g. "change rough draft to final draft"
+- [ ] 25.4 Milestone B 18.4: make factual or current-information instructions call `search_web` instead of being answered from the model's memory (system prompt in `src/agent/llm-client.js`); verify with "what is the population of Tokyo" — the stub is called and nothing unsourced is written into the document
+- [ ] 25.5 Milestone B 15.5: grep for any `edit_doc` path that indexes by whole-document offset; confirm none
+- [ ] 25.6 Milestone B 18.5: type by hand in a tab while the agent streams an edit; no corruption, no lost characters
+
+## 26. Rumaisa — Gate B (verifiable without any of Momina's Milestone C work)
+
+Real AssemblyAI, no browser, no microphone.
+
+- [ ] 26.1 The harness receives `Begin`, at least one partial `Turn`, an `end_of_turn` `Turn` after `ForceEndpoint`, and `Termination` — record the observed field names as a measured note against design D19's facts
+- [ ] 26.2 The fixture's final transcript is correct, and record whether `universal-3-5-pro` returns it punctuated and cased without `format_turns` (Open Question)
+- [ ] 26.3 Measure `ForceEndpoint` → `end_of_turn` latency over 5 runs for `universal-3-5-pro` and `universal-streaming-english`; record both and pin the model that meets the brief's 700 ms budget (Open Question)
+- [ ] 26.4 `--submit` against a seeded document produces the expected edit and a `Done` result, end to end, with no browser involved
+- [ ] 26.5 Six harness runs inside one minute: record whether the sixth is refused by the free plan's 5 new sessions/minute limit, and with what error — the evidence behind design D20
+- [ ] 26.6 `Termination` arrives on every run, and no session appears still open in the AssemblyAI dashboard afterwards
+
+## 27. Joint — Milestone C acceptance
+
+Both tracks merged. Relay, web, and agent running with both keys set; test
+with **speakers, not headphones** (brief section 10).
+
+- [ ] 27.1 Hold Right Ctrl, say "change rough draft to final draft", release: ghost text appears while speaking and the first partial lands under 300 ms after speech starts
+- [ ] 27.2 The final transcript is logged under 1 s after key-up (brief gate; target 700 ms), and the document edit streams into **both** tabs
+- [ ] 27.3 A pause mid-sentence while holding the key still produces one instruction, not two
+- [ ] 27.4 Ten presses inside two minutes all work — no rate-limit refusal, and only one session opened (confirmed in the dashboard)
+- [ ] 27.5 After 60 s idle the session closes; the next press reopens it and works, with no clipped first word
+- [ ] 27.6 A misheard instruction produces a visible failure from the Assistant, not a wrong edit or a hang
+- [ ] 27.7 With `ASSEMBLYAI_API_KEY` removed, typed instructions still work and a press shows the `503` message
+- [ ] 27.8 README updated: `ASSEMBLYAI_API_KEY` setup, the push-to-talk key and button, the speakers-not-headphones note; followed from a clean checkout, it reaches "hold the key, speak, watch the document change"
