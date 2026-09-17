@@ -515,3 +515,215 @@ existing data. Rollback is `git revert`.
   claims against; this one does not yet). Gate B (group 17) and the joint
   Milestone B acceptance (group 18) in tasks.md exist to turn this from an
   assumption into a measured note, the way Milestone A's D9/D10/D11 were.
+
+# Milestone C — Hearing You (Speech In)
+
+## Context
+
+Builds on Milestones A and B. The instruction contract from D16
+(`POST /instruction`, `{ text }`, `202`) and the outcome reporting added after
+Milestone B (the Assistant's `lastResult` awareness field, shown in the status
+area) are reused unchanged: a spoken instruction ends as the same HTTP call as
+a typed one. D-numbering continues from D18.
+
+AssemblyAI facts below were taken from its v3 streaming API reference and
+token endpoint reference at the time of writing, not measured yet. Gate B
+(group 26) exists to turn each one into a measured note, the way D1 and D12
+were.
+
+- Socket: `wss://streaming.assemblyai.com/v3/ws`. Browsers cannot set headers
+  on a WebSocket, so the browser authenticates with a `token` query parameter.
+- Token: `GET https://streaming.assemblyai.com/v3/token?expires_in_seconds=N`
+  (1-600, required) with header `authorization: <API key>`; optional
+  `max_session_duration_seconds` (60-10800). Response `{ token, expires_in_seconds }`.
+- Audio: binary frames, each 50-1000 ms of audio. `encoding=pcm_s16le`,
+  `sample_rate=16000` are the defaults.
+- `speech_model`: `universal-3-5-pro` (default), `universal-streaming-english`,
+  `universal-streaming-multilingual`. `format_turns` applies to the Universal
+  Streaming models only.
+- Client messages: `ForceEndpoint`, `Terminate`, `KeepAlive`,
+  `UpdateConfiguration`. Server messages: `Begin`, `SpeechStarted`, `Turn`
+  (`turn_order`, `transcript`, `end_of_turn`, `turn_is_formatted`,
+  `utterance` on end of turn), `Termination`.
+- Billing is on **how long the socket is open**, not audio sent. Unclosed
+  sessions auto-close after 3 hours and are billed for all of it. Optional
+  `inactivity_timeout` (5-3600 s). Free plan: 5 new sessions per minute.
+
+### D19 — The browser streams straight to AssemblyAI with a temporary token; audio does not pass through the agent process
+
+The brief's section 7 diagram draws the mic feeding AssemblyAI from inside the
+server box, and D16 assumed audio would go "browser-to-server". Two options:
+
+1. **Relay through Node.** The browser streams PCM to a new WebSocket route on
+   the agent process, which holds the AssemblyAI socket with the permanent key.
+2. **Direct from the browser.** The agent process only mints a temporary token
+   (`GET /stt-token`); the browser opens AssemblyAI's socket itself.
+
+This change uses (2):
+
+- **Latency.** The partial-transcript budget is under 300 ms (brief section 8).
+  A relay adds a hop and a second socket's buffering to every 50 ms frame for
+  no functional gain.
+- **Less new server surface.** The agent process would otherwise need a
+  WebSocket server route, binary framing, and backpressure handling — a second
+  kind of listener beside the HTTP endpoint. A token route is one more `GET`
+  on the existing `http` server.
+- **The key still never leaves the server.** This is AssemblyAI's documented
+  pattern for browsers. The token is short-lived and only good for starting a
+  streaming session.
+- **Transcripts don't need to reach the server in real time.** Only the final
+  utterance matters to the orchestrator, and it already has a channel for that
+  (D16). Partials are a browser-only display concern.
+
+Cost of this choice: the browser now owns session lifecycle (D20), so a
+crashed tab can leave a session open. Mitigated by `inactivity_timeout` (D20).
+
+### D20 — One session per burst of use: open on first press, keep warm, close after 60 s idle
+
+Billing is by socket-open time and the free plan allows 5 new sessions per
+minute. The two naive options each break one of those:
+
+- **A new session per press** is cheapest, but rapid retries while testing or
+  rehearsing hit 5 per minute and the sixth press fails. Each press also pays
+  token fetch plus socket setup before the first word can be transcribed.
+- **One session for the life of the tab** never hits the rate limit, but bills
+  every minute the page sits open.
+
+Chosen: open a session on the **first** key-down, keep it open between
+presses, and send `Terminate` after `STT_IDLE_CLOSE_MS` (60 s) with no press.
+Also send `Terminate` on `pagehide` (the same hook D10 uses for presence), and
+connect with `inactivity_timeout=STT_SERVER_IDLE_TIMEOUT_S` (120 s) so that
+AssemblyAI closes the session itself if the tab dies without saying goodbye.
+Worst-case billed idle time per burst is therefore about two minutes.
+
+**Audio is gated, not the socket.** Between presses the microphone stream
+stays acquired (no permission prompt or device warm-up on the next press) but
+no frames are sent.
+
+**No clipped first word.** Frames captured between key-down and the socket's
+`Begin` message are buffered in the browser and flushed, in order, as soon as
+`Begin` arrives. The buffer is capped at 5 s; beyond that, the press fails with
+a visible error rather than growing silently.
+
+### D21 — Audio pipeline: native-rate capture, downsampled in an AudioWorklet to 16 kHz PCM16, 50 ms frames
+
+- `getUserMedia({ audio: { channelCount: 1, echoCancellation: true,
+  noiseSuppression: true, autoGainControl: true } })`. Echo cancellation is
+  non-negotiable per the brief's risk table ("Agent transcribes itself in a
+  loop"), even though there is no agent voice yet — Days 10-11 must not have
+  to revisit capture.
+- The `AudioContext` runs at the device's **native** rate and the worklet does
+  the downsampling. Forcing `new AudioContext({ sampleRate: 16000 })` works in
+  Chromium, but some engines refuse to connect a microphone source to a
+  context at a different rate. Declaring 16000 while sending audio at any other
+  rate is the brief's "Garbled or empty transcripts" risk, so rate conversion
+  lives in one place and is asserted (task 20.4).
+- Downsampling averages each output sample's input window (a box filter)
+  before decimation — enough to avoid gross aliasing on speech without adding
+  a filter library.
+- Float samples are clamped to [-1, 1], scaled to Int16 little-endian, and
+  emitted in fixed 800-sample (50 ms, 1,600-byte) frames — the minimum the API
+  accepts, chosen for the lowest partial latency.
+- The worklet posts `ArrayBuffer`s to the main thread as transferables; the
+  main thread never touches per-sample data.
+
+### D22 — Push-to-talk: hold Right Ctrl or the on-screen button
+
+The brief specifies push-to-talk and leaves the key open. Constraints: the key
+must not type into the editor or instruction box, must not trigger a browser
+shortcut on its own, and must work on a laptop without `Fn`.
+
+- **`ControlRight`**, matched on `KeyboardEvent.code` so it is
+  layout-independent. Ctrl alone types nothing and triggers nothing; `Space`
+  would type into the focused editor, and function keys need `Fn` on most
+  laptops.
+- Auto-repeat `keydown` events (`event.repeat`) are ignored. A `keyup`, or a
+  `window` `blur` while held, ends the press, so alt-tabbing away cannot leave
+  audio flowing.
+- An on-screen **hold-to-talk button** (pointer down/up, with pointer capture)
+  drives the same code path, for keyboards without Right Ctrl and for touch.
+- The key is a constant (`PTT_KEY_CODE`) — see Open Questions.
+
+### D23 — One press is one instruction: collect every end-of-turn inside the press
+
+AssemblyAI detects turns on its own, so a pause mid-sentence while the key is
+held can produce more than one `end_of_turn` `Turn`. Push-to-talk means
+everything said while held is one instruction (brief section 9), so:
+
+- `assembleUtterance(turns)` in `src/stt-protocol.js` keeps the **latest**
+  message per `turn_order` (later messages for a turn supersede earlier ones,
+  including a formatted repeat of an unformatted end of turn), keeps only
+  those with `end_of_turn: true`, orders by `turn_order`, and joins their
+  `transcript` values with single spaces.
+- On key-up: stop sending audio, send `ForceEndpoint`, and wait for an
+  `end_of_turn` on the highest `turn_order` seen during the press, up to
+  `STT_FINAL_WAIT_MS` (1,500 ms). If it doesn't arrive in time, use the latest
+  partial for that turn and log a warning — a slightly unformatted instruction
+  is better than a dropped one.
+- Turns are attributed to a press by `turn_order`: the first `Turn` seen after
+  key-down starts the press's range. Late messages for an earlier press are
+  ignored.
+- An empty or whitespace-only result is **not** submitted; the transcript
+  strip shows "Didn't catch that" instead.
+
+### D24 — Ghost text lives outside the document
+
+Partial transcripts render in a transcript strip above the instruction bar:
+faint while partial, solid once final. They are never written into the
+`Y.Doc`. Writing partials into the shared document would broadcast unstable,
+self-correcting text to every participant and pollute undo history; the
+document should change only through a human's typing or the agent's
+deliberate edits.
+
+The final transcript is also placed in the instruction input before it is
+submitted, so a mis-transcription is visible right next to the outcome the
+Assistant reports back.
+
+### D25 — A missing `ASSEMBLYAI_API_KEY` is a loud but *non-fatal* error
+
+Unlike `GROQ_API_KEY` (fatal at startup, D14), a missing AssemblyAI key does
+not stop the agent process:
+
+- The typed-instruction path must keep working without speech. It is the
+  brief's own demo insurance ("Text-input fallback feeding the same path").
+- At startup, the process logs one clear warning naming the missing variable.
+- `GET /stt-token` returns
+  `503 { "message": "ASSEMBLYAI_API_KEY is not set on the agent process" }`,
+  and the browser shows that message in the transcript strip on the first
+  press. The failure is visible exactly where the user is looking.
+
+The token route never logs the key or the token.
+
+## Risks / Trade-offs
+
+- **Browser-owned session lifecycle (D19/D20)** can leak billable time if a
+  tab crashes. Bounded by `inactivity_timeout`; check the AssemblyAI
+  dashboard's session list after the acceptance run.
+- **Latency is unmeasured.** The brief's 700 ms key-up-to-final budget depends
+  on `ForceEndpoint` behaving as documented and on the model.
+  `universal-3-5-pro` is the most accurate; if it misses the budget, a
+  Universal Streaming model is a config change (`STT_SPEECH_MODEL`), not a
+  code change.
+- **Transcription errors become edit errors.** A misheard word becomes a
+  `find` string that doesn't exist, which Milestone B's retry loop reports as
+  a failure. Visible, not corrupting — but voice will feel less reliable than
+  typing until `keyterms_prompt` or a document-aware `prompt` is tried (out of
+  scope here).
+- **Right Ctrl is missing on some keyboards.** Covered by the on-screen
+  button, but check the demo laptop in advance.
+
+## Migration Plan
+
+Not applicable — additive. The typed path is untouched and keeps working with
+no AssemblyAI key. Rollback is `git revert`.
+
+## Open Questions
+
+- Push-to-talk key: `ControlRight` is a proposal (D22). Confirm it is
+  comfortable on both team members' keyboards before Gate A.
+- Which model meets the latency budget, `universal-3-5-pro` or
+  `universal-streaming-english`. Measured in Gate B (26.3), decided before
+  joint acceptance.
+- Whether `universal-3-5-pro` returns punctuated, cased text on `end_of_turn`
+  without `format_turns`, which the reference lists as Universal
+  Streaming-only. Measured in Gate B (26.2).
