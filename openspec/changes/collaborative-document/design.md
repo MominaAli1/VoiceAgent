@@ -414,6 +414,20 @@ CORS: the instruction endpoint sets
 already pinned by Milestone A's `vite.config.js`) so the browser fetch
 succeeds without a proxy.
 
+**Measured correction, from running Gate A's UI test against a mock server:**
+the browser's `fetch(POST, { headers: { 'Content-Type': 'application/json' } })`
+triggers a CORS **preflight** `OPTIONS` request before the real `POST` —
+this was not in the original D16 note and the first version of the Gate A
+mock server didn't handle it, which failed with
+`Response to preflight request doesn't pass access control check` and the
+UI never even reached its own error-handling code, it just saw
+`Failed to fetch`. The real endpoint (group 16) MUST respond to `OPTIONS
+/instruction` with a `2xx` status and headers `Access-Control-Allow-Origin:
+http://localhost:5173`, `Access-Control-Allow-Methods: POST`, and
+`Access-Control-Allow-Headers: Content-Type` — not just the `POST` handler.
+Confirmed fixed: with the `OPTIONS` branch added, the identical browser
+request succeeds and reaches the `POST` handler.
+
 ### D17 — Throttled insertion: chunked `Y.XmlText` inserts, not a single write
 
 `src/agent/typing.js` exposes two entry points, both used by both the

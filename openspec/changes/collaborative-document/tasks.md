@@ -322,7 +322,13 @@ the existing `readDoc()`/`getXmlFragment(FIELD)` machinery.
   `202 { "accepted": true }`, returned before the orchestrator necessarily
   finishes. Errors: `400` for a missing/empty `text`, `500` if the
   orchestrator throws before accepting — both with a JSON `{ "message": string }`
-  body. CORS allows `http://localhost:5173`.
+  body. CORS allows `http://localhost:5173`. **Must also handle the `OPTIONS`
+  preflight** the browser sends ahead of any JSON-body `POST` — respond `2xx`
+  with `Access-Control-Allow-Origin: http://localhost:5173`,
+  `Access-Control-Allow-Methods: POST`, `Access-Control-Allow-Headers:
+  Content-Type`. Measured during Gate A (Momina's mock server): without this,
+  the browser never sends the real `POST` at all, it just reports
+  `Failed to fetch` — see design D16's Gate A correction note.
 - **`src/agent/typing.js` public signatures** (Momina pushes this early,
   Rumaisa's `edit_doc` imports it without waiting for the throttling to be
   tuned): `typeIntoNewParagraph(doc, text, opts)` and
@@ -344,29 +350,39 @@ the existing `readDoc()`/`getXmlFragment(FIELD)` machinery.
 
 ## 10. Momina — Shared config and contract handoff
 
-- [ ] 10.1 Add `GROQ_MODEL`, `INSTRUCTION_PORT`, `INSTRUCTION_PATH` to `src/config.js` exactly as pinned above, with a comment noting `GROQ_MODEL` must stay in sync with whatever model `llm-client.js` actually calls
-- [ ] 10.2 Commit and push these additions ahead of the rest of Track A — this unblocks Rumaisa's `llm-client.js` and HTTP endpoint work
-- [ ] 10.3 Add `.env.example` with a `GROQ_API_KEY=` placeholder line (the real key is never committed; `.env` is already gitignored)
+- [x] 10.1 Add `GROQ_MODEL`, `INSTRUCTION_PORT`, `INSTRUCTION_PATH` to `src/config.js` exactly as pinned above, with a comment noting `GROQ_MODEL` must stay in sync with whatever model `llm-client.js` actually calls
+- [x] 10.2 Commit and push these additions ahead of the rest of Track A — this unblocks Rumaisa's `llm-client.js` and HTTP endpoint work — landed in this pass alongside the rest of the track (implemented in one session rather than two people in parallel); still structured so Rumaisa's `llm-client.js` can import these constants without waiting on anything else in this group
+- [x] 10.3 Add `.env.example` with a `GROQ_API_KEY=` placeholder line (the real key is never committed; `.env` is already gitignored) — confirmed `.env`/`.env.*` with `!.env.example` already present from Milestone A, no gitignore change needed
 
 ## 11. Momina — Throttled insertion
 
-- [ ] 11.1 Create `src/agent/typing.js` implementing `typeIntoNewParagraph(doc, text, opts)` and `typeIntoParagraph(doc, paragraphIndex, offset, text, opts)` per design D17 — default chunk size 3 characters, default delay 35ms, both overridable via `opts`
-- [ ] 11.2 Each chunk is inserted as its own `Y.XmlText` insert (its own Yjs transaction), so remote peers see text arrive incrementally, not as one write
-- [ ] 11.3 Push this ahead of the rest of Track A too — `edit_doc` (Track B) imports it directly
+- [x] 11.1 Create `src/agent/typing.js` implementing `typeIntoNewParagraph(doc, text, opts)` and `typeIntoParagraph(doc, paragraphIndex, offset, text, opts)` per design D17 — default chunk size 3 characters, default delay 35ms, both overridable via `opts`
+- [x] 11.2 Each chunk is inserted as its own `Y.XmlText` insert (its own Yjs transaction), so remote peers see text arrive incrementally, not as one write — MEASURED in Gate A (13.1): a second client observed 16 distinct intermediate snapshots while a 45-character paragraph streamed in
+- [x] 11.3 Push this ahead of the rest of Track A too — `edit_doc` (Track B) imports it directly — the module is dependency-free (only `yjs` + `src/config.js`), so Rumaisa's group 15 can import it immediately, no coordination needed
 
 ## 12. Momina — `search_web` stub and typed-instruction UI
 
-- [ ] 12.1 Implement the `search_web` stub handler and its tool schema exactly as pinned in the shared contract
-- [ ] 12.2 Add a text input and submit control to the existing editor page (`index.html` / `src/web/main.js`)
-- [ ] 12.3 On submit, `fetch(POST)` to `INSTRUCTION_PORT`/`INSTRUCTION_PATH` with `{ text }`; on `202`, clear the input and show a brief "sent" acknowledgement; on `400`/`500`, show the error message rather than failing silently
-- [ ] 12.4 The UI does not wait for the edit to appear — it only reflects the HTTP accept/reject; the actual edit is observed the same way any other participant's edit is, through the existing Yjs sync already built in Milestone A
+- [x] 12.1 Implement the `search_web` stub handler and its tool schema exactly as pinned in the shared contract — `src/agent/search-web.js`, exports `searchWeb()` and `SEARCH_WEB_SCHEMA`
+- [x] 12.2 Add a text input and submit control to the existing editor page (`index.html` / `src/web/main.js`) — `#instruction-form`/`#instruction-input`/`#instruction-submit`/`#instruction-status`, styled to match the existing top bar
+- [x] 12.3 On submit, `fetch(POST)` to `INSTRUCTION_PORT`/`INSTRUCTION_PATH` with `{ text }`; on `202`, clear the input and show a brief "sent" acknowledgement; on `400`/`500`, show the error message rather than failing silently
+- [x] 12.4 The UI does not wait for the edit to appear — it only reflects the HTTP accept/reject; the actual edit is observed the same way any other participant's edit is, through the existing Yjs sync already built in Milestone A
 
 ## 13. Momina — Gate A (verifiable without any of Rumaisa's Milestone B work)
 
-- [ ] 13.1 Prove `typing.js` directly against the running relay with a standalone Node script (no browser, no Groq, no orchestrator) — two Node clients watching the same room converge on identical text after a throttled multi-chunk insert, with intermediate partial states observable mid-stream
-- [ ] 13.2 Prove the `search_web` stub by calling its handler directly with a sample query and checking the fixed response shape
-- [ ] 13.3 Prove the browser UI sends the right request by pointing it at a minimal mock HTTP server written just for this gate (a few lines, not the real orchestrator) that asserts method, path, and body shape, and returns `202`
-- [ ] 13.4 Prove the UI's error handling by pointing the mock server at a `400`/`500` response and confirming the error is visible, not swallowed
+- [x] 13.1 Prove `typing.js` directly against the running relay with a standalone Node script (no browser, no Groq, no orchestrator) — two Node clients watching the same room converge on identical text after a throttled multi-chunk insert, with intermediate partial states observable mid-stream — PASSED: 16 incremental snapshots observed by the second client (`""`, `"The"`, `"The qu"`, `"The quick"`, `"The quick br"`, ...), both clients converged on byte-identical final text; `typeIntoParagraph` at a mid-string offset also verified correct
+- [x] 13.2 Prove the `search_web` stub by calling its handler directly with a sample query and checking the fixed response shape — PASSED: `{"available":false,"message":"Web search is not available yet."}`
+- [x] 13.3 Prove the browser UI sends the right request by pointing it at a minimal mock HTTP server written just for this gate (a few lines, not the real orchestrator) that asserts method, path, and body shape, and returns `202` — PASSED (after the CORS-preflight fix below): method `POST`, path `/instruction`, body `{"text":"tighten the second paragraph"}`; input cleared, status showed "Sent"
+- [x] 13.4 Prove the UI's error handling by pointing the mock server at a `400`/`500` response and confirming the error is visible, not swallowed — PASSED: `400` body `{"message":"text is required"}` rendered as "text is required" in the status area; `500` likewise rendered its message
+
+**Gate A passed — one real finding.** The first run of 13.3 failed with
+`Failed to fetch` / a CORS error in the browser console: `fetch()` with a
+JSON `Content-Type` header triggers a preflight `OPTIONS` request that
+neither the original design D16 note nor the first mock server accounted
+for. Fixed the mock server to answer `OPTIONS` with `204` plus
+`Access-Control-Allow-Methods`/`-Headers`, confirmed the identical browser
+request then succeeds. This is not just a test artifact — the **real**
+instruction endpoint (Rumaisa's group 16) has the same requirement, added
+there as task 16.5 and recorded in design.md D16.
 
 ## 14. Rumaisa — Groq client
 
@@ -390,7 +406,8 @@ the existing `readDoc()`/`getXmlFragment(FIELD)` machinery.
 - [ ] 16.2 Tool-dispatch loop: on a tool call, execute it (`edit_doc` or the `search_web` stub) and feed the result back to Groq; on no tool call and no document change yet, re-prompt once explicitly requiring a tool call; cap total attempts at 3 (design D14)
 - [ ] 16.3 Keep conversation history in memory for the life of the process — no persistence, no `speaking`/`cancelled` state (those are out of scope per the tech stack restrictions)
 - [ ] 16.4 Add the HTTP listener to `src/agent/index.js`: `POST /instruction` per the pinned contract, wired to `orchestrator.handleInstruction()`, responding `202` before the orchestrator necessarily finishes
-- [ ] 16.5 Remove Milestone A's hardcoded `"Appended by Assistant"` marker-line append from `dev:agent`'s startup — replace it with the orchestrator loop as the only source of document edits from the agent process; note this explicitly as a behavior change from Milestone A's `dev:agent`
+- [ ] 16.5 Handle `OPTIONS /instruction` (CORS preflight) with a `2xx` response and the headers pinned in the shared contract — **do this, it is not optional**; Momina's Gate A (13.3/13.4) proved the browser sends this before every real POST and gets an opaque `Failed to fetch` with no server-side log line if it's missing, which is a much worse debugging experience than a `400`
+- [ ] 16.6 Remove Milestone A's hardcoded `"Appended by Assistant"` marker-line append from `dev:agent`'s startup — replace it with the orchestrator loop as the only source of document edits from the agent process; note this explicitly as a behavior change from Milestone A's `dev:agent`
 
 ## 17. Rumaisa — Gate B (verifiable without any of Momina's Milestone B work)
 

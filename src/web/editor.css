@@ -106,6 +106,56 @@ main { padding: 40px 20px 25vh; }
   pointer-events: none;
 }
 
+/* ---- typed-instruction bar (Milestone B) ---- */
+
+.instruction-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 10;
+}
+
+#instruction-input {
+  flex: 1;
+  max-width: 46rem;
+  margin: 0 auto 0 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font: inherit;
+  background: var(--bg);
+  color: inherit;
+}
+#instruction-input:focus { border-color: #0090ff; outline: none; background: var(--surface); }
+
+#instruction-submit {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font: inherit;
+  font-weight: 600;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+#instruction-submit:hover { border-color: #0090ff; color: #0090ff; }
+#instruction-submit:disabled { opacity: 0.5; cursor: default; }
+
+.instruction-status {
+  font-size: 12.5px;
+  color: var(--muted);
+  min-width: 12ch;
+}
+.instruction-status[data-state='sent'] { color: #30a46c; }
+.instruction-status[data-state='error'] { color: #e5484d; }
+
 /* ---- remote carets (collaboration-caret v3 class names) ---- */
 
 .collaboration-carets__caret {

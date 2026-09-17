@@ -12,7 +12,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 
-import { ROOM, WS_URL, FIELD } from '../config.js';
+import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH } from '../config.js';
 import { randomUserColor } from '../palette.js';
 
 // ---------------------------------------------------------------- identity
@@ -126,6 +126,55 @@ renderPeers();
 // clients until the ~30s awareness timeout expires.
 window.addEventListener('pagehide', () => {
   provider.awareness.setLocalState(null);
+});
+
+// ---------------------------------------------------------------- typed instruction (Milestone B)
+
+// This form only reports whether the server *accepted* the instruction. The
+// resulting edit (once the agent brain exists — Rumaisa's Track B) arrives
+// through the same Yjs sync this page already watches, the same way any
+// other participant's edit would — there is no second notification path.
+const instructionForm = document.querySelector('#instruction-form');
+const instructionInput = document.querySelector('#instruction-input');
+const instructionSubmit = document.querySelector('#instruction-submit');
+const instructionStatus = document.querySelector('#instruction-status');
+
+const INSTRUCTION_URL = `http://localhost:${INSTRUCTION_PORT}${INSTRUCTION_PATH}`;
+
+instructionForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  const text = instructionInput.value.trim();
+  if (!text) return;
+
+  instructionSubmit.disabled = true;
+  instructionStatus.dataset.state = 'pending';
+  instructionStatus.textContent = 'Sending…';
+
+  try {
+    const res = await fetch(INSTRUCTION_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+
+    if (res.status === 202) {
+      instructionInput.value = '';
+      instructionStatus.dataset.state = 'sent';
+      instructionStatus.textContent = 'Sent';
+    } else {
+      const body = await res.json().catch(() => ({}));
+      instructionStatus.dataset.state = 'error';
+      instructionStatus.textContent = body.message || `Error (${res.status})`;
+    }
+  } catch (err) {
+    // The agent process isn't running, or isn't listening yet — surface it,
+    // don't fail silently.
+    instructionStatus.dataset.state = 'error';
+    instructionStatus.textContent = `Could not reach the agent: ${err.message}`;
+  } finally {
+    instructionSubmit.disabled = false;
+  }
 });
 
 // Handy for poking at the document from the browser console.
