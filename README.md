@@ -17,14 +17,24 @@ This project implements a collaborative document editor where a server-side agen
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
+- Node.js (v20.6 or higher)
 - npm
+- A free Groq API key
 
 ### Installation
 
 ```bash
 npm install
 ```
+
+### API key setup
+
+1. Get a free key at https://console.groq.com/keys
+2. Copy the template and paste your key after the `=`:
+   ```bash
+   cp .env.example .env
+   ```
+3. Never commit `.env`. It's already in `.gitignore`. Each person uses their own key.
 
 ### Running the Application
 
@@ -45,6 +55,8 @@ The application consists of three processes that must be started in this order:
    ```bash
    npm run dev:agent
    ```
+   The agent also accepts typed instructions at http://localhost:3001/instruction —
+   use the instruction box at the bottom of the editor page.
 
 ### Important: Start Order
 
@@ -83,8 +95,8 @@ The `FIELD` constant must match the `field` option in Tiptap's Collaboration ext
 ### Server-side Agent
 - Joins the same Yjs room as browser clients
 - Can read document content via `readDoc()`
-- Can append text via `appendText()`
-- Appears as "Assistant" participant with purple caret
+- Edits the document from typed instructions via Groq (`edit_doc` tool)
+- Appears as "Assistant" participant with a teal caret
 
 ### Verification Harness
 - `src/agent/seed-harness.js` - Test harness for verifying room and transport

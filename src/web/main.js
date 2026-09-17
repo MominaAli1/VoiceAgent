@@ -177,5 +177,18 @@ instructionForm.addEventListener('submit', async (event) => {
   }
 });
 
+// The Assistant publishes each instruction's outcome as `lastResult` on its
+// awareness state; show the newest one in the status area.
+let lastResultAt = 0;
+provider.awareness.on('change', () => {
+  for (const [, state] of provider.awareness.getStates()) {
+    const result = state.lastResult;
+    if (!result || result.at <= lastResultAt) continue;
+    lastResultAt = result.at;
+    instructionStatus.dataset.state = result.ok ? 'sent' : 'error';
+    instructionStatus.textContent = result.ok ? 'Done' : `Couldn't do that: ${result.error}`;
+  }
+});
+
 // Handy for poking at the document from the browser console.
 Object.assign(window, { editor, ydoc, provider, Y });
