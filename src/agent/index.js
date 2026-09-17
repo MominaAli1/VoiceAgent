@@ -91,12 +91,22 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // Fire-and-forget: the response does not block on the orchestrator
-    // finishing (design D16). The instruction's outcome is observed
-    // through the document itself, the same way any other participant's
-    // edit is.
-    handleInstruction(text).catch((err) => {
-      console.error('[orchestrator] instruction failed:', err);
-    });
+    // finishing (design D16). The outcome is logged here and published on
+    // the Assistant's awareness state as `lastResult`, so every tab can show
+    // whether the instruction worked instead of failing silently.
+    const publishResult = (ok, error) => {
+      provider.awareness.setLocalStateField('lastResult', { text, ok, error, at: Date.now() });
+    };
+    handleInstruction(text)
+      .then((result) => {
+        if (result.ok) console.log(`[orchestrator] done: "${text}"`);
+        else console.warn(`[orchestrator] failed: "${text}" — ${result.error}`, result.message ?? '');
+        publishResult(result.ok, result.error ?? null);
+      })
+      .catch((err) => {
+        console.error('[orchestrator] instruction crashed:', err);
+        publishResult(false, err.message);
+      });
     sendJson(res, 202, { accepted: true });
   } catch (err) {
     sendJson(res, 500, { message: err.message || 'orchestrator failed to accept instruction' });

@@ -53,7 +53,7 @@ export const FIELD = 'default';
  * model `llm-client.js` actually calls — never hardcode a model string
  * there, import it from here instead.
  */
-export const GROQ_MODEL = 'llama-3.3-70b-versatile';
+export const GROQ_MODEL = 'openai/gpt-oss-120b';
 
 /**
  * Port the agent process's instruction HTTP endpoint listens on. Separate

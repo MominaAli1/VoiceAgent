@@ -8,7 +8,7 @@
   "scripts": {
     "dev:ws": "npx y-websocket --port 1234",
     "dev:web": "vite",
-    "dev:agent": "node src/agent/index.js"
+    "dev:agent": "node --env-file=.env src/agent/index.js"
   },
   "dependencies": {
     "@tiptap/core": "^3.31.3",
