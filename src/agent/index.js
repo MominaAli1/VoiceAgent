@@ -14,12 +14,24 @@
 import http from 'node:http';
 import { readDoc } from './doc-client.js';
 import { getConnection, handleInstruction } from './orchestrator.js';
-import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH } from '../config.js';
+import { fetchStreamingToken, hasAssemblyAiKey, MissingAssemblyAiKeyError, AssemblyAiTokenError } from './stt-token.js';
+import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, STT_TOKEN_PATH } from '../config.js';
 
 const CORS_ORIGIN = 'http://localhost:5173';
 
 console.log('Starting server-side participant...');
 console.log(`Connecting to ${WS_URL} in room ${ROOM}`);
+
+// Design D25: a missing AssemblyAI key is loud but non-fatal — the typed
+// path (and Groq, checked separately in llm-client.js) must keep working
+// without speech. Warn once at startup rather than failing every /stt-token
+// request silently.
+if (!hasAssemblyAiKey()) {
+  console.warn(
+    'WARNING: ASSEMBLYAI_API_KEY is not set. Push-to-talk will show an error; ' +
+      `typed instructions on ${INSTRUCTION_PATH} are unaffected.`,
+  );
+}
 
 const { doc, provider } = getConnection();
 
@@ -66,6 +78,44 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type',
     });
     res.end();
+    return;
+  }
+
+  // CORS preflight for the token route (task 24.3) — handled the same way
+  // as /instruction's, per the pinned contract.
+  if (req.method === 'OPTIONS' && req.url === STT_TOKEN_PATH) {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': CORS_ORIGIN,
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    res.end();
+    return;
+  }
+
+  // Mint a short-lived AssemblyAI streaming token (design D19/D25). The
+  // permanent ASSEMBLYAI_API_KEY never leaves this process, and neither the
+  // key nor the returned token is ever logged.
+  if (req.method === 'GET' && req.url === STT_TOKEN_PATH) {
+    try {
+      const { token } = await fetchStreamingToken();
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': CORS_ORIGIN,
+      });
+      res.end(JSON.stringify({ token }));
+    } catch (err) {
+      if (err instanceof MissingAssemblyAiKeyError) {
+        sendJson(res, 503, { message: err.message });
+      } else if (err instanceof AssemblyAiTokenError) {
+        console.error('[stt-token] AssemblyAI rejected the token request:', err.message);
+        sendJson(res, 502, { message: 'AssemblyAI token request failed' });
+      } else {
+        console.error('[stt-token] unexpected error:', err);
+        sendJson(res, 502, { message: 'AssemblyAI token request failed' });
+      }
+    }
     return;
   }
 
