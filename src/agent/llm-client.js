@@ -107,7 +107,17 @@ export const SYSTEM_PROMPT =
   'exactly, verbatim, character for character, including punctuation and ' +
   'capitalization — do not paraphrase or summarize the text you are trying ' +
   'to match. If you are not making an edit, you must still respond, but no ' +
-  'document change will occur unless you call edit_doc.';
+  'document change will occur unless you call edit_doc.\n\n' +
+  'If the instruction asks you to add, verify, or rely on a specific fact, ' +
+  'statistic, date, price, score, or other real-world/current information ' +
+  'that is not already present verbatim in the document, you must call ' +
+  'search_web with an appropriate query before calling edit_doc — never ' +
+  'answer a factual question from your own memory. search_web is not yet ' +
+  'backed by a real search and will report `{ available: false }`; when it ' +
+  'does, do not guess, estimate, or invent the fact and do not call ' +
+  'edit_doc with a fabricated value. Instead respond in plain text saying ' +
+  'you cannot verify that information yet because web search is not ' +
+  'available, and make no document change.';
 
 /**
  * Send a chat-completion request to Groq with the pinned tool schemas
