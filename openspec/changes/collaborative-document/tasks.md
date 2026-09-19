@@ -476,9 +476,9 @@ only on a pinned contract.
 
 | Who | Done | Still to do |
 | --- | --- | --- |
-| **Momina** | Groups 19-22 and Gate A (23.1-23.5) — branch `momina/milestone-c-browser` | 23.6: one manual run with a physical Right Ctrl and a real microphone in a normal browser (the browser pane blocks microphones) |
+| **Momina** | Groups 19-22 and Gate A (23.1-23.5) — merged in PR #10 | 23.6: one manual run with a physical Right Ctrl and a real microphone in a normal browser (the browser pane blocks microphones) |
 | **Rumaisa** | **Group 24, group 25, and now Gate B (group 26) — all done.** A real `ASSEMBLYAI_API_KEY` was supplied for this pass, so 24.3 and all of 26.x ran against the live AssemblyAI streaming API, not a mock: real `Begin`/`Turn`/`Termination` messages, a correct real transcript, real `ForceEndpoint` latency numbers for both candidate models (`universal-3-5-pro` avg 96 ms, `universal-streaming-english` avg 10 ms — both clear the 700 ms budget), and a real, reproduced rate-limit refusal (`1008` close) proving design D20's caution is warranted | 26.4's Groq half (needs a real `GROQ_API_KEY` — still only a placeholder) and 26.6's dashboard check (needs a human with AssemblyAI dashboard access) are the only two sub-items not fully closed |
-| **Both** | — | Milestone C acceptance (27.x) — needs a real `GROQ_API_KEY` in addition to the AssemblyAI key, plus an actual browser+microphone run (this environment's browser pane blocks microphones, per 23.6). Milestone B leftovers 18.4/18.5/15.5 are proved via 25.4/25.6/25.5 above; 18.8's literal clean-checkout run is still outstanding |
+| **Both** | **Acceptance run on Sep 19 with real Groq and AssemblyAI keys** (see group 27): 27.2-27.7 passed, and the README gained its speech section. The same run closes 26.4's Groq half from the browser side — a spoken instruction went AssemblyAI → `/instruction` → Groq → `Done` with the document edited | 23.6 passed in a manual run with a real microphone. Still open: 27.1's 300 ms partial target (not met in the automated run), an explicit speakers-not-headphones check, and the clean-checkout runs for 18.8 and 27.8 |
 
 ---
 
@@ -618,7 +618,7 @@ driven by dispatching `ControlRight` keydown/keyup events on `window`.
 - [x] 23.3 Saving 3 s of received frames as a 16 kHz mono WAV plays back as clear, normal-pitch speech — proves the downsampling is right — **verified more strictly than by ear:** the 3.10 s WAV the mock received (16 kHz, mono, 16-bit, peak 31329) was streamed to the **real** AssemblyAI (`universal-3-5-pro`), which returned `end_of_turn #0: "Change rough draft to final draft."` — word-for-word correct
 - [x] 23.4 Scripted partial `Turn`s render as ghost text; a scripted `end_of_turn` after `ForceEndpoint` renders solid and reaches `POST /instruction` with `{ "text": ... }`; two `end_of_turn`s in one press are joined into one instruction — ghost text grew word by word ("change" → … → "change rough draft to final draft") and turned solid 170 ms after release; the mock received exactly one `POST /instruction` with `{"text":"change rough draft to final draft"}`. Split into two turns mid-press: one instruction, `"change rough draft. to final draft."`. A second press reused the same session (one session on the mock) and showed its first partial after 300 ms instead of ~550 ms
 - [x] 23.5 The mock receives `Terminate` after 60 s idle and on tab close; the mock returning `503` on the token route shows its message in the transcript strip — `Terminate` 61 s after the last frame; `Terminate` on reloading the tab; `503` showed "ASSEMBLYAI_API_KEY is not set on the agent process" in red
-- [ ] 23.6 Right Ctrl, the on-screen button, and alt-tabbing away mid-press each start and end a press correctly, and holding the key never types into the editor — **partly verified:** `ControlRight` keydown/keyup (synthetic events), a real mouse click on the button, and a `window` `blur` mid-press (press ended, final submitted once) all work. **Not verified with a physical Right Ctrl key or a real microphone** — the browser pane blocks microphones and synthetic key events cannot type. Needs one manual run on a real browser
+- [x] 23.6 Right Ctrl, the on-screen button, and alt-tabbing away mid-press each start and end a press correctly, and holding the key never types into the editor — `ControlRight` keydown/keyup (synthetic events), a real mouse click on the button, and a `window` `blur` mid-press (press ended, final submitted once) verified in the automated run; **then a manual run on Sep 19 in a normal Chrome window, with a physical keyboard and a real microphone, was reported working** end to end
 
 **Gate A — one real bug found and fixed.** After the streaming socket dropped
 and `stt.js` reconnected, the first turn of the next press was silently lost:
@@ -671,11 +671,32 @@ Groq is involved (26.4) is called out explicitly.
 Both tracks merged. Relay, web, and agent running with both keys set; test
 with **speakers, not headphones** (brief section 10).
 
-- [ ] 27.1 Hold Right Ctrl, say "change rough draft to final draft", release: ghost text appears while speaking and the first partial lands under 300 ms after speech starts
-- [ ] 27.2 The final transcript is logged under 1 s after key-up (brief gate; target 700 ms), and the document edit streams into **both** tabs
-- [ ] 27.3 A pause mid-sentence while holding the key still produces one instruction, not two
-- [ ] 27.4 Ten presses inside two minutes all work — no rate-limit refusal, and only one session opened (confirmed in the dashboard)
-- [ ] 27.5 After 60 s idle the session closes; the next press reopens it and works, with no clipped first word
-- [ ] 27.6 A misheard instruction produces a visible failure from the Assistant, not a wrong edit or a hang
-- [ ] 27.7 With `ASSEMBLYAI_API_KEY` removed, typed instructions still work and a press shows the `503` message
-- [ ] 27.8 README updated: `ASSEMBLYAI_API_KEY` setup, the push-to-talk key and button, the speakers-not-headphones note; followed from a clean checkout, it reaches "hold the key, speak, watch the document change"
+**Acceptance run, Sep 19, on `main` after PRs #10-#12.** Real relay, agent,
+Groq and AssemblyAI, two editor tabs. The browser pane blocks microphones, so
+`getUserMedia` returned a stream playing synthesized speech clips (Windows
+text-to-speech, 48 kHz); everything after the microphone was the real code.
+Presses were `ControlRight` keydown/keyup events. The items that need a
+physical key, a real voice and real speakers are left for a manual run.
+
+- [ ] 27.1 Hold Right Ctrl, say "change rough draft to final draft", release: ghost text appears while speaking and the first partial lands under 300 ms after speech starts — **ghost text works; the 300 ms target is not met.** First press of a session: first partial 3.0-3.3 s after key-down, of which 2.5-2.8 s is opening the session (token + socket + `Begin`). Warm presses: 450-550 ms after key-down, over 10 presses. The harness shows the same model behaviour: `universal-3-5-pro`'s first partial ("Change roughly.") arrived ~1.2 s after the audio started. Opening the session when the page loads, rather than on the first press, would remove the cold-start part. Still needs one run with a real voice
+- [x] 27.2 The final transcript is logged under 1 s after key-up (brief gate; target 700 ms), and the document edit streams into **both** tabs — key-up → final 344 ms (cold press) and 212-520 ms across 10 warm presses; "Change rough draft to final draft." → `Done`, and the second tab recorded the replacement arriving in steps (`a  of` → `a fin of` → `a final  of` → `a final dra of` → `a final draft of`) over ~120 ms
+- [x] 27.3 A pause mid-sentence while holding the key still produces one instruction, not two — clip with a 2 s silence mid-sentence: one instruction, `"Change every Monday. To every Friday."`, and the document changed "every Monday" to "every Friday"
+- [x] 27.4 Ten presses inside two minutes all work — no rate-limit refusal, and only one session opened (confirmed in the dashboard) — 10 presses in 70 s, all `Done`, alternating "rough → final" and "final → rough" edits. The browser opened **zero** new sessions during the burst (every press reused the warm one) and logged no errors. Confirmed from the client's own session log, not the AssemblyAI dashboard
+- [x] 27.5 After 60 s idle the session closes; the next press reopens it and works, with no clipped first word — `[stt] session closed: idle 60 s`; the next press reconnected (`session ready in 2486 ms`) and returned the whole sentence, first word intact: `"Change Final Draft to Rough Draft."` → `Done`. (A first attempt returned "Didn't catch that" — a test-harness artifact: closing the session also stops the microphone, which permanently ended the *fake* microphone's stream. A real `getUserMedia` returns a fresh stream each time; with the fake doing the same, the press worked.)
+- [x] 27.6 A misheard instruction produces a visible failure from the Assistant, not a wrong edit or a hang — "Change purple elephant to blue whale." → red `Couldn't do that: retries exhausted after 3 attempts: not found: "purple elephant"`; document unchanged
+- [x] 27.7 With `ASSEMBLYAI_API_KEY` removed, typed instructions still work and a press shows the `503` message — agent started with the variable blanked printed its warning; a typed instruction reached `Done`; after the warm session closed, the next press showed `ASSEMBLYAI_API_KEY is not set on the agent process` in red. (While a session from before is still open, a press reuses it and never asks for a new pass — expected.)
+- [ ] 27.8 README updated: `ASSEMBLYAI_API_KEY` setup, the push-to-talk key and button, the speakers-not-headphones note; followed from a clean checkout, it reaches "hold the key, speak, watch the document change" — **README part done:** AssemblyAI key setup, "Speaking an instruction" (Right Ctrl and the button, first-press delay, 60 s idle close, speakers not headphones, use a normal browser), the harness command (run as written: transcript `"Change rough draft to final draft."`), push-to-talk troubleshooting, and an updated project structure. **Not yet followed from a clean checkout**
+
+**Manual run, Sep 19:** push-to-talk with a physical keyboard and a real
+microphone in a normal Chrome window was reported working end to end (23.6).
+
+**Still open:** 27.1's 300 ms first-partial target (not measured with a real
+voice; the automated run measured ~0.5 s warm and ~3 s on the first press —
+opening the session on page load would address the latter), an explicit
+speakers-not-headphones check, and 27.8's clean-checkout run.
+
+---
+
+# Later
+
+- [ ] Turn the app into a PWA
