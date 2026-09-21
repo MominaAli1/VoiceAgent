@@ -192,3 +192,108 @@ instruction is indistinguishable from a typed one once it reaches
 - **Downstream:** Days 10-11 (talking back, barge-in) will add a `speaking`
   state and make a push-to-talk press cancel speech first. Keeping key-down
   handling in one place in `stt.js` is what makes that a small change.
+
+# Milestone D — Talking Back and Interruption
+
+## Why
+
+The brief's plan: "Days 10-11 - Talking back and interruption." Milestone C
+made the agent hear you; it still answers only by editing the document, in
+silence. This change gives it a voice and, more importantly, gives you the
+ability to cut it off.
+
+The gate is the brief's: **cutting the agent off mid-sentence works cleanly;
+voice and edit both stop.**
+
+Interruption is the point of this milestone, not the voice. The brief's
+governing rule is "the user always wins": the moment you press to talk, the
+agent stops speaking, stops typing, and treats what you say next as a fresh
+instruction against the document as it actually looks now.
+
+### Two problems this also fixes
+
+- **The agent's words are currently thrown away.** When Groq replies in plain
+  text rather than calling a tool — which is exactly what task 25.4's prompt
+  asks it to do for a factual question it cannot verify — the orchestrator
+  re-prompts it with "You must call a tool", burns its attempts, and returns
+  `retries exhausted`. The user sees a red failure and never sees the actual
+  answer. Giving replies somewhere to go (a voice, and the transcript strip)
+  turns that from a bug into the feature it was meant to be.
+- **Nothing can be stopped once started.** Neither the Groq request nor
+  `typing.js`'s insertion loop can be cancelled, so a wrong 40-word edit types
+  itself out to the end while you watch.
+
+### Deviation from the brief: browser voice, not ElevenLabs
+
+The brief picks ElevenLabs streaming, with "browser voice wired first as a
+fallback behind a flag". This change ships **only** the browser's built-in
+`speechSynthesis` voice, behind that flag (`TTS_ENGINE`), and leaves
+ElevenLabs unbuilt.
+
+Reasons: it needs no account, no key and no credit; it cannot be streamed to
+the browser without either shipping a key or proxying audio through the agent;
+and the brief's own cut list says "drop ElevenLabs (browser voice demos fine)"
+is the first thing to cut when time is short. With nine days to the deadline
+and Milestones E and F unstarted, this is that moment. `TTS_ENGINE` exists so
+adding ElevenLabs later is a new module, not a rewrite.
+
+## What Changes
+
+- **Spoken replies** (`src/web/tts.js`). The browser speaks the agent's reply
+  text with `speechSynthesis`, split into sentences so long replies are not
+  truncated, and can stop instantly.
+- **A reply channel.** The agent publishes each reply on its existing
+  awareness state (`reply`), addressed to the tab that sent the instruction,
+  so only that tab speaks. Same mechanism as Milestone B's `lastResult`, no
+  new transport.
+- **The orchestrator gains a turn, with state** (`src/agent/orchestrator.js`).
+  One turn at a time, holding `speaking`/`cancelled` state; a plain-text reply
+  from Groq now ends the turn as an answer instead of being re-prompted away;
+  reply text is published as soon as it arrives, before tools run, so the
+  agent speaks before it works rather than after.
+- **Cancellation, end to end.** A new `POST /cancel` route; an abort signal on
+  the in-flight Groq request; and a cancel check between chunks in
+  `typing.js`, so insertion stops within one chunk.
+- **Barge-in in the browser.** Pressing push-to-talk while the agent is
+  speaking cancels speech first, then tells the agent to cancel its turn, then
+  starts capturing — in that order, so the audio stops immediately rather than
+  after a round trip.
+- **Carry-over from Milestone C.** Open the speech session when the page
+  loads rather than on the first press, so the first press is fast (task 27.1).
+
+Explicitly out of scope: ElevenLabs, always-on listening, resuming an
+interrupted instruction automatically (the brief's Option 1: what is typed
+stays, the rest is dropped), erasing a half-typed fragment on interrupt, and
+real Tavily search.
+
+## Capabilities
+
+### New Capabilities
+
+- `voice-reply`: the agent's spoken reply — how reply text is produced,
+  addressed and spoken — and interruption: what a push-to-talk press cancels,
+  how fast, and what the document is left looking like.
+
+### Modified Capabilities
+
+- `agent-brain`: a turn may now end with a spoken answer and no document
+  change, where today a plain-text reply is re-prompted and eventually
+  reported as a failure. A turn can also be cancelled mid-flight.
+
+## Impact
+
+- **New dependencies:** none. `speechSynthesis` is built into the browser;
+  cancellation uses `AbortController`.
+- **New configuration:** `TTS_ENGINE`, `CANCEL_PATH`, and the sentence-split
+  and cancel-check constants, all in `src/config.js`.
+- **New code:** `src/web/tts.js`; a `POST /cancel` route in
+  `src/agent/index.js`; turn state and reply publishing in
+  `src/agent/orchestrator.js`; a cancel token in `src/agent/typing.js`.
+- **Existing code affected:** `src/web/stt.js` (barge-in on key-down, session
+  pre-warm), `src/web/main.js` (speak replies, "speaking" indicator),
+  `src/agent/llm-client.js` (system prompt asks for a short spoken line; abort
+  signal), README.
+- **Downstream:** Days 12-13 (Tavily) depends on this milestone's "speak
+  before the tool runs" path — the brief's "the agent speaks its
+  acknowledgement before the search runs, so there is no silence while it
+  waits" is exactly the mechanism built here.

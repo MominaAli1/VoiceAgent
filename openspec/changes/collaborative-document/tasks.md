@@ -697,6 +697,146 @@ speakers-not-headphones check, and 27.8's clean-checkout run.
 
 ---
 
+# Milestone D — Talking Back and Interruption
+
+Same two-track shape as before:
+
+| Track | Owner | Scope | Proved by |
+| --- | --- | --- | --- |
+| A | **Momina** | Spoken replies in the browser, barge-in, speaking indicator, session pre-warm | Gate A (group 31) — proven with a scripted reply publisher, without the orchestrator changes |
+| B | **Rumaisa** | Turn state and cancellation, reply publishing, `POST /cancel`, cancellable typing and Groq call | Gate B (group 34) — proven with `curl` and the harness, no browser |
+| Joint | **Both** | Integration | Milestone D acceptance (group 35) |
+
+Momina pushes the config constants first; Rumaisa pushes the instruction
+contract's `from`/`turnId` additions and the `reply` awareness shape first.
+
+---
+
+## Tech stack restrictions (Milestone D)
+
+**No new dependencies.** The voice is the browser's built-in
+`speechSynthesis`; cancellation uses `AbortController`. No ElevenLabs SDK, no
+audio library, no state-management library.
+
+**No ElevenLabs in this change.** `TTS_ENGINE` exists so it can be added
+later; only `'browser'` is implemented (design D26).
+
+**Cancellation is cooperative, never a process restart.** The Groq request is
+aborted with a signal; the typing loop checks a flag between chunks. Nothing
+kills or restarts the agent to stop a turn.
+
+**Deletion is never interrupted** (design D30) — only insertion is
+cancellable, matching Milestone B's rule that only insertion is throttled.
+
+**Partial replies never touch the `Y.Doc`.** Reply text is spoken and shown in
+the transcript strip; the document changes only through `edit_doc` (carried
+forward from D24).
+
+**Nothing from later phases.** No Tavily, no always-on listening, no
+auto-resume of an interrupted instruction, no erasing a half-typed fragment.
+
+**Carried forward:** never `ydoc.getText(FIELD)` (D1); the `find` string must
+match the live document verbatim (D15); the 3-attempt cap (D14); keys never
+leave the agent process (D19/D25).
+
+---
+
+## Shared contract (pinned — do not renegotiate mid-flight, Milestone D)
+
+- **`src/config.js` additions** (Momina pushes first): `TTS_ENGINE`
+  (`'browser'`), `CANCEL_PATH` (`'/cancel'`, on `INSTRUCTION_PORT`),
+  `TTS_MAX_SENTENCE_CHARS` (`180` — split longer sentences so Chrome cannot
+  truncate them).
+- **Instruction contract additions** (Rumaisa pushes first, both additive):
+  request body `{ text, from? }` where `from` is the sender's awareness
+  `clientID`; success body `202 { accepted: true, turnId }`. A body without
+  `from` stays valid and simply produces a reply nobody speaks.
+- **Cancel contract:** `POST {CANCEL_PATH}`, no body required, replies
+  `200 { cancelled: boolean }` (`false` = nothing was running). CORS and
+  `OPTIONS` handled exactly like `/instruction`.
+- **Reply shape on the Assistant's awareness state** (field `reply`):
+  `{ to, turnId, text, final, at }` (design D27). A tab speaks it only when
+  `to === provider.awareness.clientID`; every tab may display it.
+- **`typing.js` signature addition:** `opts.isCancelled` — a `() => boolean`
+  checked between chunks; the functions resolve to
+  `{ completed: boolean, insertedChars: number }` instead of `undefined`.
+
+---
+
+## 28. Momina — Config and spoken replies
+
+- [ ] 28.1 Add `TTS_ENGINE`, `CANCEL_PATH` and `TTS_MAX_SENTENCE_CHARS` to `src/config.js` as pinned, each with a one-line comment naming its design decision; push ahead of the rest of Track A
+- [ ] 28.2 Create `src/web/tts.js` exporting `speak(text)`, `stop()` and `isSpeaking()`: splits text into sentences (further splitting any sentence over `TTS_MAX_SENTENCE_CHARS`), speaks them as a queue it controls, and `stop()` clears the queue and calls `speechSynthesis.cancel()` (design D26)
+- [ ] 28.3 Throw nothing and break nothing when `speechSynthesis` is missing or no voice is installed — log once and carry on silently; the document path must never depend on the voice working
+- [ ] 28.4 Show a "speaking" state in the UI (the Assistant chip or the transcript strip) that clears when the queue empties or is stopped
+
+## 29. Momina — Reply channel and barge-in
+
+- [ ] 29.1 Send the tab's awareness `clientID` as `from` with every instruction (typed and spoken), and keep the `turnId` from the `202` reply
+- [ ] 29.2 Read the Assistant's `reply` awareness field; display every reply, and speak it only when `to` matches this tab's `clientID` (design D27)
+- [ ] 29.3 On push-to-talk key-down: `tts.stop()` first, then fire-and-forget `POST {CANCEL_PATH}`, then the existing press path — in that order (design D31)
+- [ ] 29.4 A cancelled turn (`lastResult.error === 'cancelled'`) shows "Stopped", not a red failure
+- [ ] 29.5 Carry-over from Milestone C 27.1: open the speech session on page load instead of on the first press, leaving the microphone untouched until a press (design D32)
+
+## 30. Momina — Gate A (verifiable without any of Rumaisa's Milestone D work)
+
+Uses a throwaway publisher (a small Node script joining the room and setting
+awareness fields, in the style of `seed-harness.js`) plus a mock HTTP server
+for `/instruction` and `/cancel`. Not committed as product code.
+
+- [ ] 30.1 A scripted `reply` addressed to this tab is spoken; the same reply addressed to another `clientID` is displayed but **not** spoken — checked with two tabs open
+- [ ] 30.2 A reply of five sentences speaks all five, in order, with nothing truncated
+- [ ] 30.3 Pressing push-to-talk mid-reply stops the audio within 200 ms (measure from key-down to `speechSynthesis.speaking === false`), and the mock receives `POST /cancel`
+- [ ] 30.4 Every instruction the mock receives carries a `from` matching that tab's `clientID`
+- [ ] 30.5 A scripted `lastResult` with `error: 'cancelled'` renders "Stopped", not a red error
+- [ ] 30.6 With the session pre-warmed on load (29.5), a first press shows its first partial in well under the ~3 s measured in Milestone C — record the number
+- [ ] 30.7 With `speechSynthesis` stubbed out as missing, the page still loads, instructions still work, and nothing throws
+
+## 31. Rumaisa — Turn state, cancellation and replies
+
+- [ ] 31.1 Add `opts.isCancelled` to `src/agent/typing.js` and return `{ completed, insertedChars }`; the loop checks it between chunks and stops without throwing (design D30). Push this and the contract additions ahead of the rest of Track B
+- [ ] 31.2 Give the orchestrator one `currentTurn` (`turnId`, `from`, `abort`, `cancelled`); a new instruction cancels the running turn before starting (design D28)
+- [ ] 31.3 Pass an `AbortController` signal into the Groq request so an in-flight call is dropped on cancel, and treat the resulting abort error as "cancelled", not as a failure
+- [ ] 31.4 Publish replies on the Assistant's awareness `reply` field per the pinned shape: content alongside tool calls goes out immediately as `final: false`, a final plain-text answer as `final: true` (design D27, D29)
+- [ ] 31.5 A plain-text reply with content and no tool call ends the turn as an answer; only an **empty** reply keeps D14's "you must call a tool" re-prompt (design D29)
+- [ ] 31.6 A cancelled turn publishes `lastResult` `{ ok: false, error: 'cancelled' }` and records `[interrupted by the user]` in the conversation history (design D28)
+- [ ] 31.7 Update the system prompt: one short spoken sentence in `content` (what you are about to do, or the answer), and still a tool call whenever the instruction implies a document change
+
+## 32. Rumaisa — Cancel endpoint
+
+- [ ] 32.1 Add `POST {CANCEL_PATH}` to the agent's HTTP server per the pinned contract, including `OPTIONS` and CORS exactly like `/instruction`
+- [ ] 32.2 Accept `from` on `POST /instruction` and return `turnId` in the `202` body; a body without `from` still works
+- [ ] 32.3 Cancelling when nothing is running returns `200 { cancelled: false }` — not a 404, not an error
+
+## 33. Rumaisa — Gate B (verifiable without any of Momina's Milestone D work)
+
+Real Groq, `curl` and the existing harness. No browser.
+
+- [ ] 33.1 An ordinary edit instruction still edits the document and still reports `Done` — the regression D29 could plausibly cause
+- [ ] 33.2 Record whether the model returns `content` **and** `tool_calls` in one message (design D29's open question). If it does, the reply is published before the tool runs — prove it by timestamps in the agent log
+- [ ] 33.3 A factual instruction ("add the current population of Tokyo") ends with a spoken-style plain-text reply saying it cannot verify, `ok: true`, and **no** document change and no `retries exhausted`
+- [ ] 33.4 `POST /cancel` during a long edit stops the insertion within ~35 ms of the next chunk: the document keeps the prefix, loses the rest, and stays structurally valid; `lastResult` is `{ ok: false, error: 'cancelled' }`
+- [ ] 33.5 `POST /cancel` during the Groq call aborts the request — no tool runs afterwards and no document change appears
+- [ ] 33.6 A second instruction sent while the first is still typing cancels the first and completes itself (design D28), with no interleaved text from the two turns
+- [ ] 33.7 `POST /cancel` with nothing running returns `200 { cancelled: false }`
+- [ ] 33.8 Grep the agent log for a cancelled turn: no unhandled rejection, no abort error surfacing as a failure
+
+## 34. Joint — Milestone D acceptance
+
+Relay, web and agent running with both keys; **speakers, not headphones**.
+
+- [ ] 34.1 Speak an edit instruction: the agent speaks a short line and the document edit streams in; both tabs see the edit, only the instructing tab speaks
+- [ ] 34.2 The first spoken word starts under 1 s after the final transcript (brief's budget) — record the measured number even if it fails
+- [ ] 34.3 **Brief's gate:** press push-to-talk mid-sentence while the agent is speaking and typing — audio stops within 200 ms, insertion stops within one chunk, and the document keeps what was typed without corruption
+- [ ] 34.4 The new sentence spoken after that interrupt is handled as a fresh instruction against the document as it now looks
+- [ ] 34.5 "Okay, finish that paragraph" after an interrupt picks the thread back up, showing conversation history survived the cancel
+- [ ] 34.6 Ask a factual question out loud: the agent says it cannot search yet, and writes nothing unsourced into the document
+- [ ] 34.7 Typing by hand while the agent speaks and types produces no corruption and no lost characters
+- [ ] 34.8 Run with speakers: the agent's own voice is never transcribed as an instruction
+- [ ] 34.9 README updated: the voice (which engine, and that it uses the machine's default voice), how to interrupt, and what an interrupted edit leaves behind
+
+---
+
 # Later
 
 - [ ] Turn the app into a PWA
