@@ -727,3 +727,188 @@ no AssemblyAI key. Rollback is `git revert`.
 - Whether `universal-3-5-pro` returns punctuated, cased text on `end_of_turn`
   without `format_turns`, which the reference lists as Universal
   Streaming-only. Measured in Gate B (26.2).
+
+# Milestone D — Talking Back and Interruption
+
+## Context
+
+Builds on Milestones A-C. The instruction contract (D16), the Assistant's
+awareness state as the browser-facing report channel (`lastResult`, added
+after Milestone B), and push-to-talk's single press start/end path (D22) are
+all reused rather than replaced. D-numbering continues from D25.
+
+Measured starting points this milestone has to respect:
+
+- A warm press delivers its final transcript 0.2-0.5 s after key-up, and a
+  Groq turn then completes in roughly 1-5 s (Milestone C acceptance run).
+- The brief's budgets: agent to first spoken word under 1 s; audio must stop
+  within 200 ms of a barge-in.
+
+### D26 — Browser `speechSynthesis` only, behind `TTS_ENGINE`
+
+`TTS_ENGINE` is pinned to `'browser'` and only that engine is implemented.
+Reasons are in the proposal (no key, no credit, no audio proxy, and the
+brief's own cut list). Two consequences worth stating:
+
+- **Voices differ per machine and browser.** The demo laptop's default English
+  voice is what the judges hear; check it in rehearsal, do not assume.
+- **Chrome truncates long utterances** (roughly 15 s) and can stall a queued
+  utterance. `tts.js` splits reply text into sentences and speaks them as a
+  queue it controls, so a long reply is many short utterances — which also
+  makes `cancel()` land between sentences almost immediately.
+
+`speechSynthesis.speak()` needs a prior user activation in Chrome. Every reply
+in this milestone follows a press or a form submit, so the activation is
+always there; a reply that arrives with no prior interaction simply does not
+speak, and that is acceptable.
+
+### D27 — The reply travels on awareness, addressed to one tab
+
+The agent already publishes `lastResult` on its awareness state and every tab
+reads it. Reply text goes the same way, as `reply`:
+
+```
+{ to: <client's awareness clientID>, turnId: <string>, text: <string>,
+  final: <boolean>, at: <ms> }
+```
+
+`to` is the awareness `clientID` of the tab that sent the instruction, taken
+from an additive optional field on the instruction contract:
+
+- `POST {INSTRUCTION_PATH}` body becomes `{ text, from? }`, where `from` is
+  that `clientID`. Bodies without `from` stay valid (the harness sends none).
+- The `202` body becomes `{ accepted: true, turnId }`.
+
+Only the tab whose `clientID` matches `to` speaks. Every tab may *show* the
+reply text; only one says it out loud. Without `to`, a two-tab demo would
+speak every reply twice, in two voices, slightly out of sync.
+
+Rejected: a WebSocket or SSE stream from the agent (a second transport for one
+string per turn), and a `Y.Map` in the document (D16 already rejected putting
+control traffic in the CRDT).
+
+### D28 — One turn at a time, and the newest instruction wins
+
+The orchestrator holds one `currentTurn`: `{ turnId, from, abort, cancelled }`.
+
+- A new instruction while a turn is running **cancels that turn first**, then
+  starts its own. This is the brief's "the user always wins", and it is
+  enforced server-side so it holds even if the browser never sends `/cancel`.
+- `POST {CANCEL_PATH}` cancels the running turn and returns
+  `200 { cancelled: <boolean> }` — `false` when there was nothing to cancel,
+  which is not an error.
+- Cancelling: set `cancelled`, `abort.abort()` the in-flight Groq request,
+  and let the typing loop stop at its next chunk (D30).
+- A cancelled turn publishes `lastResult` as
+  `{ ok: false, error: 'cancelled' }`; the browser shows "Stopped", not a red
+  failure — the user meant to do it.
+- Conversation history keeps the cancelled turn plus a
+  `[interrupted by the user]` note, so "finish that paragraph" has something
+  to refer to (the brief's Option 1).
+
+### D29 — A plain-text reply ends the turn as an answer
+
+Today a Groq message with no tool call is re-prompted with "You must call a
+tool" (D14), and after three attempts the turn fails with `retries exhausted`.
+That was right when a turn could only succeed by editing. It is wrong now:
+task 25.4's prompt explicitly asks the model to answer in plain text when it
+cannot verify a fact.
+
+New rule:
+
+- A message with **non-empty `content` and no tool calls** ends the turn:
+  publish the content as a final reply (spoken), return `{ ok: true, spoke: true }`.
+- A message with **no tool calls and empty content** keeps D14's re-prompt.
+- A message with **`content` *and* tool calls** publishes the content
+  immediately as a non-final reply, then dispatches the tools — the brief's
+  "speak text blocks first, fire-and-forget". Whether this model populates
+  both fields in one message is an open question, measured in Gate B.
+
+Risk accepted: a weak model that chats instead of editing now ends its turn
+saying something rather than retrying. The system prompt counters this by
+asking for a tool call whenever the instruction implies a document change, and
+Gate B's first check is that an ordinary edit instruction still edits.
+
+### D30 — Cancellation reaches the typing loop within one chunk
+
+`typing.js`'s `streamInto()` loop gains a cancel check between chunks:
+
+```js
+if (isCancelled?.()) return { completed: false, insertedChars: position - startOffset };
+```
+
+Callers pass `opts.isCancelled`, a function the orchestrator wires to the
+current turn. At the pinned 3-character, 35 ms chunking, a cancel lands within
+~35 ms — well inside the 200 ms budget, and the 200 ms that matters most is
+the audio, which stops in the browser without waiting for any of this.
+
+**What the document is left looking like.** The brief says two different
+things: section 5 says the agent "stops typing mid-word", while the test
+checklist says the document must not be "left mid-word in a broken state".
+This milestone follows section 5 and the brief's own Option 1: **stop at the
+next chunk, keep what is typed, drop the rest, do not auto-resume**. A
+half-typed word is accepted; erasing the fragment is listed in the brief as a
+later polish. The checklist item is read as "structurally valid and not
+corrupt", which the CRDT guarantees regardless.
+
+Deletion is never interrupted: `edit_doc` deletes the matched text in one
+instant operation before typing begins, so a cancel can never leave a
+half-deleted document.
+
+### D31 — Barge-in order: stop the voice, then the turn, then listen
+
+On push-to-talk key-down the browser, in this order:
+
+1. `tts.stop()` — `speechSynthesis.cancel()`, clearing its own queue. Local,
+   instant, no network.
+2. `POST {CANCEL_PATH}` — fire-and-forget; the press must not wait for it.
+3. The existing press path (D20-D23): open or reuse the session, capture.
+
+Doing (1) first is what makes the barge-in feel instant. (2) is fire-and-forget
+because a slow or failed cancel must not delay capture — and D28 means the
+next instruction cancels the old turn server-side anyway, so a lost `/cancel`
+costs nothing but a few seconds of stale typing.
+
+The press path is unchanged otherwise, so barge-in is not a second code path
+that can drift from the normal one.
+
+### D32 — The speech session opens on page load, not on the first press
+
+Milestone C measured ~2.5-2.8 s of session setup on the first press (token +
+socket + `Begin`), which is why 27.1's 300 ms target was missed by the cold
+press. `stt.js` now opens the session when the page loads, and the existing
+idle timer closes it after `STT_IDLE_CLOSE_MS` if nobody presses.
+
+Cost: a page left open unused pays for one idle session (about 60 s of
+connection time) per load. At the streaming rate that is fractions of a cent,
+against a $150 free credit. The microphone is **not** opened on load — no
+permission prompt, no recording indicator, until the first press.
+
+## Risks / Trade-offs
+
+- **The voice is the machine's default.** Quality varies by OS and browser;
+  the demo machine's voice is a rehearsal item, not a code item.
+- **D29 loosens D14.** A model that talks instead of acting now ends its turn.
+  Measured in Gate B; if it regresses, the fallback is to re-prompt once when
+  the instruction looks like an edit and the model only talked.
+- **Speaking before the tool runs depends on the model emitting content
+  alongside tool calls.** If it never does, the agent stays silent until the
+  edit finishes, and the "speak first" half of the brief's latency budget is
+  unmet. A canned local acknowledgement on submit is the fallback, and is
+  deliberately not built until measurement says it is needed.
+- **A half-typed word survives an interrupt** (D30). Accepted, per the brief's
+  Option 1, and flagged because it is the most visible consequence of this
+  milestone on screen.
+
+## Migration Plan
+
+Additive. Without `TTS_ENGINE` the app behaves as it does today minus the
+voice; `POST /cancel` is new; the `from` field is optional. Rollback is
+`git revert`.
+
+## Open Questions
+
+- Does `openai/gpt-oss-120b` return `content` and `tool_calls` in the same
+  message? Decides whether the agent can speak before it edits (Gate B, 33.2).
+- Is one sentence per utterance the right split for the machine voice, or does
+  it sound clipped? Rehearsal question, settled by listening (36.x).
