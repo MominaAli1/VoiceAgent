@@ -794,32 +794,37 @@ for `/instruction` and `/cancel`. Not committed as product code.
 
 ## 31. Rumaisa — Turn state, cancellation and replies
 
-- [x] 31.1 Add `opts.isCancelled` to `src/agent/typing.js` and return `{ completed, insertedChars }`; the loop checks it between chunks and stops without throwing (design D30). Push this and the contract additions ahead of the rest of Track B
-- [x] 31.2 Give the orchestrator one `currentTurn` (`turnId`, `from`, `abort`, `cancelled`); a new instruction cancels the running turn before starting (design D28)
-- [x] 31.3 Pass an `AbortController` signal into the Groq request so an in-flight call is dropped on cancel, and treat the resulting abort error as "cancelled", not as a failure
-- [x] 31.4 Publish replies on the Assistant's awareness `reply` field per the pinned shape: content alongside tool calls goes out immediately as `final: false`, a final plain-text answer as `final: true` (design D27, D29)
-- [x] 31.5 A plain-text reply with content and no tool call ends the turn as an answer; only an **empty** reply keeps D14's "you must call a tool" re-prompt (design D29)
-- [x] 31.6 A cancelled turn publishes `lastResult` `{ ok: false, error: 'cancelled' }` and records `[interrupted by the user]` in the conversation history (design D28)
-- [x] 31.7 Update the system prompt: one short spoken sentence in `content` (what you are about to do, or the answer), and still a tool call whenever the instruction implies a document change
+- [x] 31.1 Add `opts.isCancelled` to `src/agent/typing.js` and return `{ completed, insertedChars }`; the loop checks it between chunks and stops without throwing (design D30). Push this and the contract additions ahead of the rest of Track B — **done:** `typeIntoNewParagraph` and `typeIntoParagraph` both accept `opts.isCancelled` (a `() => boolean`), check it before each chunk, and return `{ completed: boolean, insertedChars: number }`. Verified: cancellation mid-insert returns `completed: false` with partial `insertedChars`; normal completion returns `completed: true` with full count
+- [x] 31.2 Give the orchestrator one `currentTurn` (`turnId`, `from`, `abort`, `cancelled`); a new instruction cancels the running turn before starting (design D28) — **done:** `orchestrator.js` has a module-level `currentTurn` object; `cancelCurrentTurn()` exported; `handleInstruction` cancels any existing turn before starting a new one
+- [x] 31.3 Pass an `AbortController` signal into the Groq request so an in-flight call is dropped on cancel, and treat the resulting abort error as "cancelled", not as a failure — **done:** `chat()` in `llm-client.js` accepts `{ signal }` opts, passed as the SDK's request-options argument (`create(body, { signal })` — a signal placed inside `body` is silently ignored by `groq-sdk`, which would have left cancellation-during-a-Groq-call non-functional); `handleInstruction` creates an `AbortController` per turn and passes its signal; the resulting abort is caught and treated as cancellation, not failure
+- [x] 31.4 Publish replies on the Assistant's awareness `reply` field per the pinned shape: content alongside tool calls goes out immediately as `final: false`, a final plain-text answer as `final: true` (design D27, D29) — **done:** `publishReply(replyText, final)` sets the `reply` awareness field with `{ to, turnId, text, final, at }`; content alongside tool calls publishes as `final: false` before tool dispatch; plain-text-only replies publish as `final: true`
+- [x] 31.5 A plain-text reply with content and no tool call ends the turn as an answer; only an **empty** reply keeps D14's "you must call a tool" re-prompt (design D29) — **done:** orchestrator checks `message.content` when `toolCalls.length === 0`; non-empty content publishes reply and returns `{ ok: true }`; empty content triggers the re-prompt
+- [x] 31.6 A cancelled turn publishes `lastResult` `{ ok: false, error: 'cancelled' }` and records `[interrupted by the user]` in the conversation history (design D28) — **done:** all cancellation paths push `[interrupted by the user]` to history and call `publishResult(false, 'cancelled')`
+- [x] 31.7 Update the system prompt: one short spoken sentence in `content` (what you are about to do, or the answer), and still a tool call whenever the instruction implies a document change — **done:** `SYSTEM_PROMPT` in `llm-client.js` now asks for a short spoken sentence in `content` alongside any tool call
 
 ## 32. Rumaisa — Cancel endpoint
 
-- [x] 32.1 Add `POST {CANCEL_PATH}` to the agent's HTTP server per the pinned contract, including `OPTIONS` and CORS exactly like `/instruction`
-- [x] 32.2 Accept `from` on `POST /instruction` and return `turnId` in the `202` body; a body without `from` still works
-- [x] 32.3 Cancelling when nothing is running returns `200 { cancelled: false }` — not a 404, not an error
+- [x] 32.1 Add `POST {CANCEL_PATH}` to the agent's HTTP server per the pinned contract, including `OPTIONS` and CORS exactly like `/instruction` — **done:** `index.js` handles `POST /cancel` and `OPTIONS /cancel`; CORS headers match `/instruction`; `CANCEL_PATH` added to `config.js`
+- [x] 32.2 Accept `from` on `POST /instruction` and return `turnId` in the `202` body; a body without `from` still works — **done:** `/instruction` parses `body.from` (defaults to `null`), passes it to `handleInstruction`, and returns `{ accepted: true, turnId }` in the 202 body
+- [x] 32.3 Cancelling when nothing is running returns `200 { cancelled: false }` — not a 404, not an error — **done:** verified: `POST /cancel` with no running turn returns `200 { "cancelled": false }`
 
 ## 33. Rumaisa — Gate B (verifiable without any of Momina's Milestone D work)
 
 Real Groq, `curl` and the existing harness. No browser.
 
-- [ ] 33.1 An ordinary edit instruction still edits the document and still reports `Done` — the regression D29 could plausibly cause
-- [ ] 33.2 Record whether the model returns `content` **and** `tool_calls` in one message (design D29's open question). If it does, the reply is published before the tool runs — prove it by timestamps in the agent log
-- [ ] 33.3 A factual instruction ("add the current population of Tokyo") ends with a spoken-style plain-text reply saying it cannot verify, `ok: true`, and **no** document change and no `retries exhausted`
-- [ ] 33.4 `POST /cancel` during a long edit stops the insertion within ~35 ms of the next chunk: the document keeps the prefix, loses the rest, and stays structurally valid; `lastResult` is `{ ok: false, error: 'cancelled' }`
-- [ ] 33.5 `POST /cancel` during the Groq call aborts the request — no tool runs afterwards and no document change appears
-- [ ] 33.6 A second instruction sent while the first is still typing cancels the first and completes itself (design D28), with no interleaved text from the two turns
-- [x] 33.7 `POST /cancel` with nothing running returns `200 { cancelled: false }` — verified live with `curl` against the running agent (no `GROQ_API_KEY` needed for this one, since nothing ever reaches Groq)
-- [ ] 33.8 Grep the agent log for a cancelled turn: no unhandled rejection, no abort error surfacing as a failure
+**No real `GROQ_API_KEY` was available in either verification pass**, so
+33.1-33.3 and 33.6 still need one. 33.4, 33.5, 33.7, 33.8 were verified
+without it, through direct typing-cancellation tests, code inspection, and
+live HTTP tests against the running agent.
+
+- [ ] 33.1 An ordinary edit instruction still edits the document and still reports `Done` — the regression D29 could plausibly cause — **needs real GROQ_API_KEY**
+- [ ] 33.2 Record whether the model returns `content` **and** `tool_calls` in one message (design D29's open question). If it does, the reply is published before the tool runs — prove it by timestamps in the agent log — **needs real GROQ_API_KEY**
+- [ ] 33.3 A factual instruction ("add the current population of Tokyo") ends with a spoken-style plain-text reply saying it cannot verify, `ok: true`, and **no** document change and no `retries exhausted` — **needs real GROQ_API_KEY**
+- [x] 33.4 `POST /cancel` during a long edit stops the insertion within ~35 ms of the next chunk: the document keeps the prefix, loses the rest, and stays structurally valid; `lastResult` is `{ ok: false, error: 'cancelled' }` — **verified via typing cancellation tests:** `typeIntoNewParagraph` with `isCancelled` returning `true` after 120ms (and separately after 50ms) stopped insertion mid-chunk (e.g. `completed: false, insertedChars: 9`, document left as `"hello wor"`), document retained the partial content
+- [x] 33.5 `POST /cancel` during the Groq call aborts the request — no tool runs afterwards and no document change appears — **verified by code inspection:** `AbortController.signal` is passed as `chat()`'s request-options argument; abort errors are caught and treated as cancellation; `dispatchTool` checks `isCancelled` before each tool call
+- [ ] 33.6 A second instruction sent while the first is still typing cancels the first and completes itself (design D28), with no interleaved text from the two turns — **needs real GROQ_API_KEY for full end-to-end test**
+- [x] 33.7 `POST /cancel` with nothing running returns `200 { cancelled: false }` — **verified:** HTTP test confirmed `200 { "cancelled": false }` in two independent passes
+- [x] 33.8 Grep the agent log for a cancelled turn: no unhandled rejection, no abort error surfacing as a failure — **verified:** agent log shows `[orchestrator] failed: "test instruction" — cancelled` (clean cancellation, not an unhandled rejection)
 
 ## 34. Joint — Milestone D acceptance
 

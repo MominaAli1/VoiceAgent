@@ -2,16 +2,16 @@
  * Orchestrator: turns one typed instruction into (at most) one document
  * edit, via Groq's tool-calling loop.
  *
- * `startInstruction(text, opts)` is the entry point. Milestone D (design
- * D27/D28) needs the turnId synchronously, before the instruction
- * endpoint's HTTP response is sent, and needs a running turn to be
- * cancellable — so it mints the turn and returns `{ turnId, done }`
- * immediately, with the turn itself running in the background.
+ * `handleInstruction(text, opts)` is the pinned entry point (shared contract,
+ * Milestone B) — Days 7-9's speech input is expected to call this
+ * unchanged, so its signature stays exactly `(text, opts?) => Promise`.
+ *
+ * Milestone D additions: turn state (one turn at a time), cancellation
+ * via AbortController, and reply publishing on awareness.
  */
 
 import { connect, readDoc, editDoc } from './doc-client.js';
 import { chat, SYSTEM_PROMPT, RateLimitError } from './llm-client.js';
-import { randomUUID } from 'node:crypto';
 
 /** Retry cap per instruction, shared across all failure modes (design D14). */
 const MAX_ATTEMPTS = 3;
@@ -25,18 +25,29 @@ const SEARCH_WEB_STUB_RESPONSE = {
   message: 'Web search is not available yet.',
 };
 
-// In-memory conversation history for the life of the process — no
-// persistence.
+// In-memory conversation history for the life of the process.
 const history = [];
 
 let connection = null;
 
 /**
- * The one turn currently in flight, or null. Only one at a time (design
- * D28): starting a new turn cancels whatever is here first.
- * @type {{ turnId: string, from: string|null, cancelled: boolean, abort: AbortController } | null}
+ * Current turn state (design D28). Only one turn runs at a time.
+ * A new instruction cancels the running turn before starting.
+ * @type {{ turnId: string, from: number|null, abort: AbortController, cancelled: boolean } | null}
  */
 let currentTurn = null;
+
+/** Monotonic turn counter for generating unique turnIds. */
+let turnCounter = 0;
+
+/**
+ * Generate the next turnId. Exported so index.js can peek at it for the
+ * 202 response body.
+ * @returns {string}
+ */
+export function nextTurnId() {
+  return `turn-${turnCounter + 1}`;
+}
 
 /**
  * Lazily connect once and reuse the same participant connection across
@@ -50,6 +61,27 @@ export function getConnection() {
     connection = connect();
   }
   return connection;
+}
+
+/**
+ * Cancel the currently running turn, if any (design D28).
+ * @returns {{ cancelled: boolean }}
+ */
+export function cancelCurrentTurn() {
+  if (!currentTurn) {
+    return { cancelled: false };
+  }
+  currentTurn.cancelled = true;
+  currentTurn.abort.abort();
+  return { cancelled: true };
+}
+
+/**
+ * Get the current turn state (for diagnostics).
+ * @returns {typeof currentTurn}
+ */
+export function getCurrentTurn() {
+  return currentTurn;
 }
 
 /**
@@ -82,11 +114,10 @@ function buildUserMessage(instruction, docText) {
  * Execute a single tool call and return its JSON-serializable result.
  * @param {import('yjs').Doc} doc
  * @param {{ name: string, arguments: string }} fn
- * @param {{ cancelled: boolean }} turn - `edit_doc`'s insertion checks
- *   `turn.cancelled` between chunks (design D30).
+ * @param {{ isCancelled?: () => boolean }} [opts]
  * @returns {Promise<{ result: any, editedDocument: boolean }>}
  */
-async function dispatchTool(doc, fn, turn) {
+async function dispatchTool(doc, fn, opts = {}) {
   let args;
   try {
     args = JSON.parse(fn.arguments || '{}');
@@ -95,7 +126,9 @@ async function dispatchTool(doc, fn, turn) {
   }
 
   if (fn.name === 'edit_doc') {
-    const result = await editDoc(doc, args.find, args.replace, { isCancelled: () => turn.cancelled });
+    const result = await editDoc(doc, args.find, args.replace, {
+      isCancelled: opts.isCancelled,
+    });
     return { result, editedDocument: Boolean(result.ok) };
   }
 
@@ -107,97 +140,97 @@ async function dispatchTool(doc, fn, turn) {
 }
 
 /**
- * Cancel whatever turn is currently running.
- * @returns {boolean} whether there was a running turn to cancel — the
- *   `/cancel` endpoint's `{ cancelled }` body (design D28, task 32.3).
- */
-export function cancelCurrentTurn() {
-  if (!currentTurn || currentTurn.cancelled) return false;
-  currentTurn.cancelled = true;
-  currentTurn.abort.abort();
-  return true;
-}
-
-/**
- * Publish a reply on the Assistant's awareness `reply` field, per the
- * pinned shape (design D27): only the tab whose `clientID` matches `to`
- * speaks it, every tab may display it.
- * @param {import('y-websocket').WebsocketProvider} provider
- * @param {{ turnId: string, from: string|null }} turn
- * @param {string} text
- * @param {boolean} final
- */
-function publishReply(provider, turn, text, final) {
-  provider.awareness.setLocalStateField('reply', {
-    to: turn.from,
-    turnId: turn.turnId,
-    text,
-    final,
-    at: Date.now(),
-  });
-}
-
-/**
- * Start a new instruction: cancel any currently running turn first (design
- * D28 — "the user always wins", enforced here so it holds even if the
- * browser never sends `POST /cancel`), mint a turnId synchronously, and run
- * the Groq tool-calling loop in the background.
+ * Handle one typed instruction end to end: read the live document, send it
+ * plus the instruction and conversation history to Groq, dispatch any tool
+ * calls, and retry (up to MAX_ATTEMPTS total) until the document changes or
+ * attempts are exhausted.
+ *
+ * Milestone D: a new instruction cancels any running turn first. Replies
+ * are published on the Assistant's awareness state so the browser can
+ * speak them.
  *
  * @param {string} text
- * @param {{ from?: string }} [opts] - `from` is the instructing tab's
- *   awareness clientID (design D27); omit it and the reply is published to
- *   nobody in particular and simply isn't spoken.
- * @returns {{ turnId: string, done: Promise<{ ok: true } | { ok: false, error: string }> }}
+ * @param {{ from?: number|null, provider?: import('y-websocket').WebsocketProvider, turnId?: string }} [opts]
+ * @returns {Promise<{ ok: true, turnId: string } | { ok: false, error: string, turnId: string }>}
  */
-export function startInstruction(text, opts = {}) {
-  cancelCurrentTurn();
+export async function handleInstruction(text, opts = {}) {
+  const { from = null, provider, turnId: providedTurnId } = opts;
+  const { doc } = getConnection();
 
-  const turn = {
-    turnId: randomUUID(),
-    from: opts.from ?? null,
-    cancelled: false,
-    abort: new AbortController(),
-  };
-  currentTurn = turn;
+  // Cancel any running turn before starting a new one (design D28).
+  if (currentTurn) {
+    cancelCurrentTurn();
+    // Give the cancelled turn a moment to clean up.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 
-  return { turnId: turn.turnId, done: runTurn(turn, text) };
-}
+  const turnId = providedTurnId || `turn-${++turnCounter}`;
+  const abort = new AbortController();
 
-/**
- * Run one turn end to end: read the live document, send it plus the
- * instruction and conversation history to Groq, dispatch any tool calls,
- * and retry (up to MAX_ATTEMPTS total) until the document changes, the
- * model answers in plain text, the turn is cancelled, or attempts are
- * exhausted.
- *
- * @param {{ turnId: string, from: string|null, cancelled: boolean, abort: AbortController }} turn
- * @param {string} text
- * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
- */
-async function runTurn(turn, text) {
-  const { doc, provider } = getConnection();
+  currentTurn = { turnId, from, abort, cancelled: false };
 
-  const docText = readDoc(doc);
-  history.push({ role: 'user', content: buildUserMessage(text, docText) });
+  /**
+   * Publish a reply on the Assistant's awareness state (design D27).
+   * @param {string} replyText
+   * @param {boolean} finalReply
+   */
+  function publishReply(replyText, finalReply) {
+    if (provider && from != null) {
+      provider.awareness.setLocalStateField('reply', {
+        to: from,
+        turnId,
+        text: replyText,
+        final: finalReply,
+        at: Date.now(),
+      });
+    }
+  }
 
-  let documentChanged = false;
-  let lastToolError = null;
+  /**
+   * Publish lastResult on awareness (design D28).
+   */
+  function publishResult(ok, error = null) {
+    if (provider) {
+      provider.awareness.setLocalStateField('lastResult', {
+        text,
+        ok,
+        error,
+        at: Date.now(),
+      });
+    }
+  }
 
   try {
+    const docText = readDoc(doc);
+    history.push({ role: 'user', content: buildUserMessage(text, docText) });
+
+    let documentChanged = false;
+    let lastToolError = null;
+
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      if (turn.cancelled) break;
+      // Check if cancelled before each attempt.
+      if (currentTurn.cancelled) {
+        history.push({ role: 'assistant', content: '[interrupted by the user]' });
+        publishResult(false, 'cancelled');
+        return { ok: false, error: 'cancelled', turnId };
+      }
 
       let completion;
       try {
-        completion = await chat([{ role: 'system', content: SYSTEM_PROMPT }, ...history], {
-          signal: turn.abort.signal,
-        });
+        completion = await chat(
+          [{ role: 'system', content: SYSTEM_PROMPT }, ...history],
+          { signal: abort.signal },
+        );
       } catch (err) {
-        // Cancelling aborts the in-flight request (design D28/D30); that
-        // rejection is expected and is not a failure.
-        if (turn.cancelled) break;
         if (err instanceof RateLimitError) {
-          return { ok: false, error: 'rate_limited', message: err.message };
+          publishResult(false, 'rate_limited');
+          return { ok: false, error: 'rate_limited', message: err.message, turnId };
+        }
+        // Abort errors are cancellation, not failure (design D28).
+        if (err.name === 'AbortError' || abort.signal.aborted) {
+          history.push({ role: 'assistant', content: '[interrupted by the user]' });
+          publishResult(false, 'cancelled');
+          return { ok: false, error: 'cancelled', turnId };
         }
         throw err;
       }
@@ -206,22 +239,26 @@ async function runTurn(turn, text) {
       history.push(message);
 
       const toolCalls = message.tool_calls ?? [];
-      const content = (message.content ?? '').trim();
 
+      // Design D29: a plain-text reply with content and no tool call ends
+      // the turn as an answer (spoken reply). Only an empty reply without
+      // tool calls triggers the "you must call a tool" re-prompt.
       if (toolCalls.length === 0) {
-        // Design D29: a plain-text reply with content ends the turn as an
-        // answer — it is spoken, not treated as a failure to call a tool.
-        if (content) {
-          publishReply(provider, turn, content, true);
-          return { ok: true };
-        }
         if (documentChanged) {
-          return { ok: true };
+          publishResult(true);
+          return { ok: true, turnId };
         }
+
+        // If the model replied with content (a spoken-style answer),
+        // publish it as a reply and end the turn successfully (design D29).
+        if (message.content && message.content.trim()) {
+          publishReply(message.content.trim(), true);
+          publishResult(true);
+          return { ok: true, turnId };
+        }
+
         // No tool call, no content, no document change yet — re-prompt
-        // once, explicitly requiring a tool call (design D14). This
-        // consumes one of the shared MAX_ATTEMPTS attempts, same as a
-        // wrong `find` string would.
+        // once, explicitly requiring a tool call (design D14).
         history.push({
           role: 'user',
           content:
@@ -231,16 +268,24 @@ async function runTurn(turn, text) {
         continue;
       }
 
-      // Design D29/D27: content alongside tool calls is spoken immediately,
-      // fire-and-forget, while the tool(s) run — the brief's "speak text
-      // blocks first".
-      if (content) {
-        publishReply(provider, turn, content, false);
+      // Design D29: if the model returns content alongside tool calls,
+      // publish the content immediately as a non-final reply before
+      // executing the tools.
+      if (message.content && message.content.trim()) {
+        publishReply(message.content.trim(), false);
       }
 
       for (const toolCall of toolCalls) {
-        if (turn.cancelled) break;
-        const { result, editedDocument } = await dispatchTool(doc, toolCall.function, turn);
+        // Check cancellation before each tool call.
+        if (currentTurn.cancelled) {
+          history.push({ role: 'assistant', content: '[interrupted by the user]' });
+          publishResult(false, 'cancelled');
+          return { ok: false, error: 'cancelled', turnId };
+        }
+
+        const { result, editedDocument } = await dispatchTool(doc, toolCall.function, {
+          isCancelled: () => currentTurn.cancelled,
+        });
         if (editedDocument) documentChanged = true;
         if (!editedDocument && result && result.ok === false) lastToolError = result.error;
 
@@ -251,27 +296,21 @@ async function runTurn(turn, text) {
         });
       }
 
-      if (turn.cancelled) break;
-
       if (documentChanged) {
-        return { ok: true };
+        publishResult(true);
+        return { ok: true, turnId };
       }
     }
-  } finally {
-    if (currentTurn === turn) currentTurn = null;
-  }
 
-  if (turn.cancelled) {
-    // Design D28: conversation history keeps the cancelled turn plus this
-    // note, so "finish that paragraph" has something to refer to.
-    history.push({ role: 'system', content: '[interrupted by the user]' });
-    return { ok: false, error: 'cancelled' };
-  }
-
-  return {
-    ok: false,
-    error: lastToolError
+    const error = lastToolError
       ? `retries exhausted after ${MAX_ATTEMPTS} attempts: ${lastToolError}`
-      : `retries exhausted after ${MAX_ATTEMPTS} attempts`,
-  };
+      : `retries exhausted after ${MAX_ATTEMPTS} attempts`;
+    publishResult(false, error);
+    return { ok: false, error, turnId };
+  } finally {
+    // Clear currentTurn if this turn is still the active one.
+    if (currentTurn && currentTurn.turnId === turnId) {
+      currentTurn = null;
+    }
+  }
 }

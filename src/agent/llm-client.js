@@ -118,12 +118,11 @@ export const SYSTEM_PROMPT =
   'edit_doc with a fabricated value. Instead respond in plain text saying ' +
   'you cannot verify that information yet because web search is not ' +
   'available, and make no document change.\n\n' +
-  'Every reply is read aloud to the user, so always include a short, ' +
-  'single spoken sentence in your message content: what you are about to ' +
-  'do (when calling a tool) or your answer (when not). Write it to be ' +
-  'heard, not read — brief and natural. A spoken sentence is never a ' +
-  'substitute for calling a tool: still call edit_doc or search_web ' +
-  'whenever the instruction implies a document change.';
+  'When you respond, include a short spoken sentence in your content field ' +
+  '— what you are about to do (e.g. "Let me update that for you.") or the ' +
+  'answer to a factual question. This sentence will be spoken aloud to the ' +
+  'user. Keep it to one short sentence. Always still call the appropriate ' +
+  'tool when the instruction implies a document change.';
 
 /**
  * Send a chat-completion request to Groq with the pinned tool schemas
@@ -133,6 +132,8 @@ export const SYSTEM_PROMPT =
  * @param {{ signal?: AbortSignal }} [opts] - `signal` aborts an in-flight
  *   request when the turn is cancelled (design D28/D30); the resulting
  *   rejection is the caller's to interpret as a cancellation, not a failure.
+ *   Passed as the SDK's second (request-options) argument — `groq-sdk`'s
+ *   `create(body, options)` only honors `signal` there, not inside `body`.
  * @returns {Promise<import('groq-sdk').Groq.Chat.Completions.ChatCompletion>}
  * @throws {RateLimitError} if Groq responds with a rate-limit error
  */
