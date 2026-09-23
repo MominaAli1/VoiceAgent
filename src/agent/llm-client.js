@@ -117,23 +117,31 @@ export const SYSTEM_PROMPT =
   'does, do not guess, estimate, or invent the fact and do not call ' +
   'edit_doc with a fabricated value. Instead respond in plain text saying ' +
   'you cannot verify that information yet because web search is not ' +
-  'available, and make no document change.';
+  'available, and make no document change.\n\n' +
+  'Every reply is read aloud to the user, so always include a short, ' +
+  'single spoken sentence in your message content: what you are about to ' +
+  'do (when calling a tool) or your answer (when not). Write it to be ' +
+  'heard, not read — brief and natural. A spoken sentence is never a ' +
+  'substitute for calling a tool: still call edit_doc or search_web ' +
+  'whenever the instruction implies a document change.';
 
 /**
  * Send a chat-completion request to Groq with the pinned tool schemas
  * registered.
  *
  * @param {Array<{role: string, content?: string, tool_calls?: any[], tool_call_id?: string, name?: string}>} messages
+ * @param {{ signal?: AbortSignal }} [opts] - `signal` aborts an in-flight
+ *   request when the turn is cancelled (design D28/D30); the resulting
+ *   rejection is the caller's to interpret as a cancellation, not a failure.
  * @returns {Promise<import('groq-sdk').Groq.Chat.Completions.ChatCompletion>}
  * @throws {RateLimitError} if Groq responds with a rate-limit error
  */
-export async function chat(messages) {
+export async function chat(messages, opts = {}) {
   try {
-    return await client.chat.completions.create({
-      model: GROQ_MODEL,
-      messages,
-      tools: TOOLS,
-    });
+    return await client.chat.completions.create(
+      { model: GROQ_MODEL, messages, tools: TOOLS },
+      { signal: opts.signal },
+    );
   } catch (err) {
     if (err instanceof Groq.RateLimitError) {
       throw new RateLimitError(err);

@@ -765,18 +765,18 @@ leave the agent process (D19/D25).
 
 ## 28. Momina — Config and spoken replies
 
-- [ ] 28.1 Add `TTS_ENGINE`, `CANCEL_PATH` and `TTS_MAX_SENTENCE_CHARS` to `src/config.js` as pinned, each with a one-line comment naming its design decision; push ahead of the rest of Track A
-- [ ] 28.2 Create `src/web/tts.js` exporting `speak(text)`, `stop()` and `isSpeaking()`: splits text into sentences (further splitting any sentence over `TTS_MAX_SENTENCE_CHARS`), speaks them as a queue it controls, and `stop()` clears the queue and calls `speechSynthesis.cancel()` (design D26)
-- [ ] 28.3 Throw nothing and break nothing when `speechSynthesis` is missing or no voice is installed — log once and carry on silently; the document path must never depend on the voice working
-- [ ] 28.4 Show a "speaking" state in the UI (the Assistant chip or the transcript strip) that clears when the queue empties or is stopped
+- [x] 28.1 Add `TTS_ENGINE`, `CANCEL_PATH` and `TTS_MAX_SENTENCE_CHARS` to `src/config.js` as pinned, each with a one-line comment naming its design decision; push ahead of the rest of Track A
+- [x] 28.2 Create `src/web/tts.js` exporting `speak(text)`, `stop()` and `isSpeaking()`: splits text into sentences (further splitting any sentence over `TTS_MAX_SENTENCE_CHARS`), speaks them as a queue it controls, and `stop()` clears the queue and calls `speechSynthesis.cancel()` (design D26)
+- [x] 28.3 Throw nothing and break nothing when `speechSynthesis` is missing or no voice is installed — log once and carry on silently; the document path must never depend on the voice working
+- [x] 28.4 Show a "speaking" state in the UI (the Assistant chip or the transcript strip) that clears when the queue empties or is stopped
 
 ## 29. Momina — Reply channel and barge-in
 
-- [ ] 29.1 Send the tab's awareness `clientID` as `from` with every instruction (typed and spoken), and keep the `turnId` from the `202` reply
-- [ ] 29.2 Read the Assistant's `reply` awareness field; display every reply, and speak it only when `to` matches this tab's `clientID` (design D27)
-- [ ] 29.3 On push-to-talk key-down: `tts.stop()` first, then fire-and-forget `POST {CANCEL_PATH}`, then the existing press path — in that order (design D31)
-- [ ] 29.4 A cancelled turn (`lastResult.error === 'cancelled'`) shows "Stopped", not a red failure
-- [ ] 29.5 Carry-over from Milestone C 27.1: open the speech session on page load instead of on the first press, leaving the microphone untouched until a press (design D32)
+- [x] 29.1 Send the tab's awareness `clientID` as `from` with every instruction (typed and spoken), and keep the `turnId` from the `202` reply
+- [x] 29.2 Read the Assistant's `reply` awareness field; display every reply, and speak it only when `to` matches this tab's `clientID` (design D27)
+- [x] 29.3 On push-to-talk key-down: `tts.stop()` first, then fire-and-forget `POST {CANCEL_PATH}`, then the existing press path — in that order (design D31)
+- [x] 29.4 A cancelled turn (`lastResult.error === 'cancelled'`) shows "Stopped", not a red failure
+- [x] 29.5 Carry-over from Milestone C 27.1: open the speech session on page load instead of on the first press, leaving the microphone untouched until a press (design D32)
 
 ## 30. Momina — Gate A (verifiable without any of Rumaisa's Milestone D work)
 
@@ -794,19 +794,19 @@ for `/instruction` and `/cancel`. Not committed as product code.
 
 ## 31. Rumaisa — Turn state, cancellation and replies
 
-- [ ] 31.1 Add `opts.isCancelled` to `src/agent/typing.js` and return `{ completed, insertedChars }`; the loop checks it between chunks and stops without throwing (design D30). Push this and the contract additions ahead of the rest of Track B
-- [ ] 31.2 Give the orchestrator one `currentTurn` (`turnId`, `from`, `abort`, `cancelled`); a new instruction cancels the running turn before starting (design D28)
-- [ ] 31.3 Pass an `AbortController` signal into the Groq request so an in-flight call is dropped on cancel, and treat the resulting abort error as "cancelled", not as a failure
-- [ ] 31.4 Publish replies on the Assistant's awareness `reply` field per the pinned shape: content alongside tool calls goes out immediately as `final: false`, a final plain-text answer as `final: true` (design D27, D29)
-- [ ] 31.5 A plain-text reply with content and no tool call ends the turn as an answer; only an **empty** reply keeps D14's "you must call a tool" re-prompt (design D29)
-- [ ] 31.6 A cancelled turn publishes `lastResult` `{ ok: false, error: 'cancelled' }` and records `[interrupted by the user]` in the conversation history (design D28)
-- [ ] 31.7 Update the system prompt: one short spoken sentence in `content` (what you are about to do, or the answer), and still a tool call whenever the instruction implies a document change
+- [x] 31.1 Add `opts.isCancelled` to `src/agent/typing.js` and return `{ completed, insertedChars }`; the loop checks it between chunks and stops without throwing (design D30). Push this and the contract additions ahead of the rest of Track B
+- [x] 31.2 Give the orchestrator one `currentTurn` (`turnId`, `from`, `abort`, `cancelled`); a new instruction cancels the running turn before starting (design D28)
+- [x] 31.3 Pass an `AbortController` signal into the Groq request so an in-flight call is dropped on cancel, and treat the resulting abort error as "cancelled", not as a failure
+- [x] 31.4 Publish replies on the Assistant's awareness `reply` field per the pinned shape: content alongside tool calls goes out immediately as `final: false`, a final plain-text answer as `final: true` (design D27, D29)
+- [x] 31.5 A plain-text reply with content and no tool call ends the turn as an answer; only an **empty** reply keeps D14's "you must call a tool" re-prompt (design D29)
+- [x] 31.6 A cancelled turn publishes `lastResult` `{ ok: false, error: 'cancelled' }` and records `[interrupted by the user]` in the conversation history (design D28)
+- [x] 31.7 Update the system prompt: one short spoken sentence in `content` (what you are about to do, or the answer), and still a tool call whenever the instruction implies a document change
 
 ## 32. Rumaisa — Cancel endpoint
 
-- [ ] 32.1 Add `POST {CANCEL_PATH}` to the agent's HTTP server per the pinned contract, including `OPTIONS` and CORS exactly like `/instruction`
-- [ ] 32.2 Accept `from` on `POST /instruction` and return `turnId` in the `202` body; a body without `from` still works
-- [ ] 32.3 Cancelling when nothing is running returns `200 { cancelled: false }` — not a 404, not an error
+- [x] 32.1 Add `POST {CANCEL_PATH}` to the agent's HTTP server per the pinned contract, including `OPTIONS` and CORS exactly like `/instruction`
+- [x] 32.2 Accept `from` on `POST /instruction` and return `turnId` in the `202` body; a body without `from` still works
+- [x] 32.3 Cancelling when nothing is running returns `200 { cancelled: false }` — not a 404, not an error
 
 ## 33. Rumaisa — Gate B (verifiable without any of Momina's Milestone D work)
 
@@ -818,7 +818,7 @@ Real Groq, `curl` and the existing harness. No browser.
 - [ ] 33.4 `POST /cancel` during a long edit stops the insertion within ~35 ms of the next chunk: the document keeps the prefix, loses the rest, and stays structurally valid; `lastResult` is `{ ok: false, error: 'cancelled' }`
 - [ ] 33.5 `POST /cancel` during the Groq call aborts the request — no tool runs afterwards and no document change appears
 - [ ] 33.6 A second instruction sent while the first is still typing cancels the first and completes itself (design D28), with no interleaved text from the two turns
-- [ ] 33.7 `POST /cancel` with nothing running returns `200 { cancelled: false }`
+- [x] 33.7 `POST /cancel` with nothing running returns `200 { cancelled: false }` — verified live with `curl` against the running agent (no `GROQ_API_KEY` needed for this one, since nothing ever reaches Groq)
 - [ ] 33.8 Grep the agent log for a cancelled turn: no unhandled rejection, no abort error surfacing as a failure
 
 ## 34. Joint — Milestone D acceptance

@@ -104,6 +104,30 @@ node --env-file=.env src/agent/stt-harness.js fixtures/change-rough-draft.wav
 
 Add `--submit` to send the transcript to the agent as an instruction.
 
+### Hearing the agent talk back, and interrupting it
+
+The agent speaks its replies with the browser's built-in voice
+(`speechSynthesis`) — not ElevenLabs. There's no key, no account, and no
+credit to manage; the trade-off is that the voice is whatever your OS/browser
+provides by default, and it sounds robotic rather than natural. (ElevenLabs
+was cut per the brief's own guidance — see `TTS_ENGINE` in `src/config.js`.)
+
+- **To interrupt:** press push-to-talk (Right Ctrl or the mic button) at any
+  time, including while the agent is speaking or typing. The agent's voice
+  stops within ~200 ms, and any in-progress edit stops at the next chunk
+  (within ~35 ms) — your new instruction is then treated as a fresh one
+  against the document exactly as it looks right now.
+- **What an interrupted edit leaves behind:** whatever had already been
+  typed stays in the document — including a half-typed word. Nothing is
+  auto-erased and nothing auto-resumes; the deleted portion of a `find`/
+  `replace` edit is never left half-deleted, since the delete step is
+  instant and only the *insertion* of the replacement is interruptible.
+- The instruction bar shows **Stopped** (not a red error) when a turn was
+  cancelled this way — it isn't a failure, it's what you asked for.
+- Every reply is also shown as text (the line above the instruction bar);
+  only the tab that sent the instruction speaks it, so a two-tab demo
+  doesn't talk over itself.
+
 ## Configuration
 
 All configuration is centralized in `src/config.js`:

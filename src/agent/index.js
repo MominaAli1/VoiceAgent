@@ -13,9 +13,9 @@
 
 import http from 'node:http';
 import { readDoc } from './doc-client.js';
-import { getConnection, handleInstruction } from './orchestrator.js';
+import { getConnection, startInstruction, cancelCurrentTurn } from './orchestrator.js';
 import { fetchStreamingToken, hasAssemblyAiKey, MissingAssemblyAiKeyError, AssemblyAiTokenError } from './stt-token.js';
-import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, STT_TOKEN_PATH } from '../config.js';
+import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, STT_TOKEN_PATH, CANCEL_PATH } from '../config.js';
 
 const CORS_ORIGIN = 'http://localhost:5173';
 
@@ -93,6 +93,27 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // CORS preflight for the cancel route (design D28, task 32.1) — handled
+  // exactly like /instruction's, per the pinned Milestone D contract.
+  if (req.method === 'OPTIONS' && req.url === CANCEL_PATH) {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': CORS_ORIGIN,
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    res.end();
+    return;
+  }
+
+  // Cancel the currently running turn, if any (design D28). Not running is
+  // not an error — `{ cancelled: false }` is a normal, expected response
+  // (task 32.3).
+  if (req.method === 'POST' && req.url === CANCEL_PATH) {
+    const cancelled = cancelCurrentTurn();
+    sendJson(res, 200, { cancelled });
+    return;
+  }
+
   // Mint a short-lived AssemblyAI streaming token (design D19/D25). The
   // permanent ASSEMBLYAI_API_KEY never leaves this process, and neither the
   // key nor the returned token is ever logged.
@@ -124,11 +145,15 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  let text;
+  let text, from;
   try {
     const raw = await readBody(req);
     const body = raw ? JSON.parse(raw) : {};
     text = body.text;
+    // Additive, optional (design D27): the instructing tab's awareness
+    // clientID. A body without it stays valid — the harness sends none —
+    // and simply produces a reply nobody speaks.
+    from = typeof body.from === 'string' ? body.from : undefined;
   } catch {
     sendJson(res, 400, { message: 'invalid JSON body' });
     return;
@@ -147,9 +172,11 @@ const server = http.createServer(async (req, res) => {
     const publishResult = (ok, error) => {
       provider.awareness.setLocalStateField('lastResult', { text, ok, error, at: Date.now() });
     };
-    handleInstruction(text)
+    const { turnId, done } = startInstruction(text, { from });
+    done
       .then((result) => {
         if (result.ok) console.log(`[orchestrator] done: "${text}"`);
+        else if (result.error === 'cancelled') console.log(`[orchestrator] cancelled: "${text}"`);
         else console.warn(`[orchestrator] failed: "${text}" — ${result.error}`, result.message ?? '');
         publishResult(result.ok, result.error ?? null);
       })
@@ -157,7 +184,7 @@ const server = http.createServer(async (req, res) => {
         console.error('[orchestrator] instruction crashed:', err);
         publishResult(false, err.message);
       });
-    sendJson(res, 202, { accepted: true });
+    sendJson(res, 202, { accepted: true, turnId });
   } catch (err) {
     sendJson(res, 500, { message: err.message || 'orchestrator failed to accept instruction' });
   }

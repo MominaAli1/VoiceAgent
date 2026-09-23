@@ -14,6 +14,13 @@
  * transaction — so remote peers see the text arrive incrementally rather
  * than as a single write. Deletion is never throttled (design D17); only
  * insertion streams in chunks.
+ *
+ * --- Milestone D addition (design D30) ---
+ * Both public functions accept `opts.isCancelled`, a `() => boolean` checked
+ * between chunks, and resolve to `{ completed, insertedChars }` instead of
+ * `undefined` so a caller (the orchestrator) can tell a cancelled turn from
+ * a finished one. A cancel lands within one chunk (~35 ms at the pinned
+ * defaults) — well inside the barge-in's 200 ms budget.
  */
 
 import * as Y from 'yjs';
@@ -46,11 +53,11 @@ function chunk(text, chunkSize) {
  *
  * @param {Y.Doc} doc
  * @param {string} text
- * @param {{ chunkSize?: number, delayMs?: number, field?: string }} [opts]
- * @returns {Promise<void>} resolves once every chunk has been inserted
+ * @param {{ chunkSize?: number, delayMs?: number, field?: string, isCancelled?: () => boolean }} [opts]
+ * @returns {Promise<{ completed: boolean, insertedChars: number }>}
  */
 export async function typeIntoNewParagraph(doc, text, opts = {}) {
-  const { chunkSize = DEFAULT_CHUNK_SIZE, delayMs = DEFAULT_DELAY_MS, field = FIELD } = opts;
+  const { chunkSize = DEFAULT_CHUNK_SIZE, delayMs = DEFAULT_DELAY_MS, field = FIELD, isCancelled } = opts;
 
   const fragment = doc.getXmlFragment(field);
   const paragraph = new Y.XmlElement('paragraph');
@@ -58,7 +65,7 @@ export async function typeIntoNewParagraph(doc, text, opts = {}) {
   paragraph.insert(0, [textNode]);
   fragment.insert(fragment.length, [paragraph]);
 
-  await streamInto(textNode, text, chunkSize, delayMs);
+  return streamInto(textNode, text, chunkSize, delayMs, undefined, isCancelled);
 }
 
 /**
@@ -69,11 +76,11 @@ export async function typeIntoNewParagraph(doc, text, opts = {}) {
  * @param {number} paragraphIndex - Index of the paragraph within the shared fragment
  * @param {number} offset - Character offset within the paragraph's text to insert after
  * @param {string} text
- * @param {{ chunkSize?: number, delayMs?: number, field?: string }} [opts]
- * @returns {Promise<void>} resolves once every chunk has been inserted
+ * @param {{ chunkSize?: number, delayMs?: number, field?: string, isCancelled?: () => boolean }} [opts]
+ * @returns {Promise<{ completed: boolean, insertedChars: number }>}
  */
 export async function typeIntoParagraph(doc, paragraphIndex, offset, text, opts = {}) {
-  const { chunkSize = DEFAULT_CHUNK_SIZE, delayMs = DEFAULT_DELAY_MS, field = FIELD } = opts;
+  const { chunkSize = DEFAULT_CHUNK_SIZE, delayMs = DEFAULT_DELAY_MS, field = FIELD, isCancelled } = opts;
 
   const fragment = doc.getXmlFragment(field);
   const paragraph = fragment.get(paragraphIndex);
@@ -86,22 +93,32 @@ export async function typeIntoParagraph(doc, paragraphIndex, offset, text, opts 
     throw new Error(`typeIntoParagraph: paragraph ${paragraphIndex} has no Y.XmlText child`);
   }
 
-  await streamInto(textNode, text, chunkSize, delayMs, offset);
+  return streamInto(textNode, text, chunkSize, delayMs, offset, isCancelled);
 }
 
 /**
  * Insert `text` into `textNode` in chunks, each its own transaction.
+ * Checked between chunks (design D30): a cancel stops the loop before the
+ * next chunk is inserted, keeping whatever was already typed and dropping
+ * the rest — never auto-resumed, never erased.
  * @param {Y.XmlText} textNode
  * @param {string} text
  * @param {number} chunkSize
  * @param {number} delayMs
  * @param {number} [startOffset] - Defaults to the end of the current text
+ * @param {() => boolean} [isCancelled]
+ * @returns {{ completed: boolean, insertedChars: number }}
  */
-async function streamInto(textNode, text, chunkSize, delayMs, startOffset) {
-  let position = startOffset ?? textNode.length;
+async function streamInto(textNode, text, chunkSize, delayMs, startOffset, isCancelled) {
+  const start = startOffset ?? textNode.length;
+  let position = start;
   const chunks = chunk(text, chunkSize);
 
   for (let i = 0; i < chunks.length; i++) {
+    if (isCancelled?.()) {
+      return { completed: false, insertedChars: position - start };
+    }
+
     const piece = chunks[i];
     textNode.insert(position, piece);
     position += piece.length;
@@ -110,4 +127,6 @@ async function streamInto(textNode, text, chunkSize, delayMs, startOffset) {
       await sleep(delayMs);
     }
   }
+
+  return { completed: true, insertedChars: position - start };
 }

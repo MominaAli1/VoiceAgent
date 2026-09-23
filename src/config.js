@@ -97,3 +97,28 @@ export const STT_FINAL_WAIT_MS = 1500;
 
 /** Push-to-talk key, matched on KeyboardEvent.code. Design D22. */
 export const PTT_KEY_CODE = 'ControlRight';
+
+/**
+ * --- Milestone D additions (talking back and interruption) ---
+ *
+ * Pinned by the Milestone D shared contract in
+ * openspec/changes/collaborative-document/tasks.md.
+ */
+
+/**
+ * Which TTS backend speaks replies. Only `'browser'` is implemented this
+ * milestone — the browser's built-in `speechSynthesis`, no ElevenLabs, no
+ * key, no audio proxy (design D26). The flag exists so ElevenLabs can be
+ * added later as a new module rather than a rewrite.
+ */
+export const TTS_ENGINE = 'browser';
+
+/** Cancel-current-turn route on the agent's existing HTTP server (INSTRUCTION_PORT). Design D28. */
+export const CANCEL_PATH = '/cancel';
+
+/**
+ * Longest a single spoken utterance is allowed to be, in characters. Chrome
+ * truncates/stalls utterances around 15s of speech; replies are split into
+ * sentences no longer than this so nothing is cut off (design D26).
+ */
+export const TTS_MAX_SENTENCE_CHARS = 180;

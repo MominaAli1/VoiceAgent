@@ -125,6 +125,21 @@ main { padding: 40px 20px 25vh; }
   padding: 12px 20px;
 }
 
+/* ---- spoken replies (Milestone D) ---- */
+
+.assistant-reply {
+  padding: 8px 20px 0;
+  min-height: 1.4em;
+  font-size: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.assistant-reply:empty { display: none; }
+.assistant-reply[data-state='speaking'] { color: var(--text); }
+.assistant-reply[data-state='speaking']::before { content: '🔊 '; }
+
 /* ---- push-to-talk (Milestone C) ---- */
 
 .transcript {
@@ -200,6 +215,7 @@ main { padding: 40px 20px 25vh; }
 }
 .instruction-status[data-state='sent'] { color: #30a46c; }
 .instruction-status[data-state='error'] { color: #e5484d; }
+.instruction-status[data-state='stopped'] { color: var(--muted); }
 
 /* ---- remote carets (collaboration-caret v3 class names) ---- */
 

@@ -21,6 +21,10 @@
     </main>
 
     <footer class="dock">
+      <!-- The Assistant's spoken reply (design D26/D27). Shown for every
+           tab; only spoken by the tab that sent the instruction. -->
+      <div id="assistant-reply" class="assistant-reply" data-state="idle" aria-live="polite"></div>
+
       <!-- Ghost text for push-to-talk. Never written into the document (design D24). -->
       <div id="transcript" class="transcript" data-state="idle" aria-live="polite">
         Hold Right Ctrl or the mic button to speak an instruction

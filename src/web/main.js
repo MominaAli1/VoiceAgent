@@ -12,9 +12,10 @@ import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 
-import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, PTT_KEY_CODE } from '../config.js';
+import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, CANCEL_PATH, PTT_KEY_CODE } from '../config.js';
 import { randomUserColor } from '../palette.js';
 import { createSpeechInput } from './stt.js';
+import { speak, stop as stopSpeaking, onSpeaking } from './tts.js';
 
 // ---------------------------------------------------------------- identity
 
@@ -141,6 +142,11 @@ const instructionSubmit = document.querySelector('#instruction-submit');
 const instructionStatus = document.querySelector('#instruction-status');
 
 const INSTRUCTION_URL = `http://localhost:${INSTRUCTION_PORT}${INSTRUCTION_PATH}`;
+const CANCEL_URL = `http://localhost:${INSTRUCTION_PORT}${CANCEL_PATH}`;
+
+// The turnId from the most recently accepted instruction (task 29.1) —
+// exposed on `window.turnState` for poking at from the console.
+const turnState = { lastTurnId: null };
 
 instructionForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -156,10 +162,14 @@ instructionForm.addEventListener('submit', async (event) => {
     const res = await fetch(INSTRUCTION_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      // `from` is this tab's awareness clientID (design D27) — replies
+      // addressed to it are the only ones this tab speaks.
+      body: JSON.stringify({ text, from: provider.awareness.clientID }),
     });
 
     if (res.status === 202) {
+      const body = await res.json().catch(() => ({}));
+      turnState.lastTurnId = body.turnId ?? null;
       instructionInput.value = '';
       instructionStatus.dataset.state = 'sent';
       instructionStatus.textContent = 'Sent';
@@ -179,15 +189,45 @@ instructionForm.addEventListener('submit', async (event) => {
 });
 
 // The Assistant publishes each instruction's outcome as `lastResult` on its
-// awareness state; show the newest one in the status area.
+// awareness state; show the newest one in the status area. A cancelled turn
+// (the user interrupted it) is not a failure — it shows "Stopped" (task 29.4).
 let lastResultAt = 0;
 provider.awareness.on('change', () => {
   for (const [, state] of provider.awareness.getStates()) {
     const result = state.lastResult;
     if (!result || result.at <= lastResultAt) continue;
     lastResultAt = result.at;
-    instructionStatus.dataset.state = result.ok ? 'sent' : 'error';
-    instructionStatus.textContent = result.ok ? 'Done' : `Couldn't do that: ${result.error}`;
+    if (result.error === 'cancelled') {
+      instructionStatus.dataset.state = 'stopped';
+      instructionStatus.textContent = 'Stopped';
+    } else {
+      instructionStatus.dataset.state = result.ok ? 'sent' : 'error';
+      instructionStatus.textContent = result.ok ? 'Done' : `Couldn't do that: ${result.error}`;
+    }
+  }
+});
+
+// ---------------------------------------------------------------- spoken replies (Milestone D)
+
+// The Assistant publishes each reply on its awareness `reply` field (design
+// D27). Every tab shows it; only the tab whose clientID matches `to` speaks
+// it — otherwise a two-tab demo would speak every reply twice.
+const assistantReplyEl = document.querySelector('#assistant-reply');
+
+onSpeaking((speaking) => {
+  assistantReplyEl.dataset.state = speaking ? 'speaking' : 'idle';
+});
+
+let lastReplyAt = 0;
+provider.awareness.on('change', () => {
+  for (const [, state] of provider.awareness.getStates()) {
+    const reply = state.reply;
+    if (!reply || reply.at <= lastReplyAt) continue;
+    lastReplyAt = reply.at;
+    assistantReplyEl.textContent = reply.text;
+    if (reply.to === provider.awareness.clientID) {
+      speak(reply.text);
+    }
   }
 });
 
@@ -221,6 +261,12 @@ const speech = createSpeechInput({
 
 function pressStart() {
   pttButton.dataset.active = 'true';
+  // Barge-in order (design D31): stop the voice first (local, instant), then
+  // fire-and-forget the cancel request — it must not delay capture, and a
+  // lost /cancel costs nothing since the next instruction cancels the old
+  // turn server-side anyway (design D28) — then the existing press path.
+  stopSpeaking();
+  fetch(CANCEL_URL, { method: 'POST' }).catch(() => {});
   speech.startPress();
 }
 
@@ -250,4 +296,4 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 }
 
 // Handy for poking at the document from the browser console.
-Object.assign(window, { editor, ydoc, provider, Y });
+Object.assign(window, { editor, ydoc, provider, Y, turnState });
