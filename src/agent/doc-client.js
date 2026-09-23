@@ -68,8 +68,8 @@ export function appendText(doc, text) {
  * @param {Y.Doc} doc
  * @param {string} find - Exact, verbatim substring to locate, within a single paragraph
  * @param {string} replace - Replacement text
- * @param {{ chunkSize?: number, delayMs?: number }} [opts]
- * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
+ * @param {{ chunkSize?: number, delayMs?: number, isCancelled?: () => boolean }} [opts]
+ * @returns {Promise<{ ok: true, completed: boolean, insertedChars: number } | { ok: false, error: string }>}
  */
 export async function editDoc(doc, find, replace, opts = {}) {
   // A `find` string that crosses a paragraph boundary is out of scope for
@@ -133,9 +133,9 @@ export async function editDoc(doc, find, replace, opts = {}) {
   // replacement's insertion is throttled (design D17).
   textNode.delete(offset, find.length);
 
-  await typeIntoParagraph(doc, paragraphIndex, offset, replace, opts);
+  const { completed, insertedChars } = await typeIntoParagraph(doc, paragraphIndex, offset, replace, opts);
 
-  return { ok: true };
+  return { ok: true, completed, insertedChars };
 }
 
 /**
