@@ -58,6 +58,16 @@ function sendJson(res, status, body) {
   res.end(payload);
 }
 
+/** CORS preflight response, identical for every route on this server. */
+function sendPreflight(res, methods) {
+  res.writeHead(204, {
+    'Access-Control-Allow-Origin': CORS_ORIGIN,
+    'Access-Control-Allow-Methods': methods,
+    'Access-Control-Allow-Headers': 'Content-Type',
+  });
+  res.end();
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let raw = '';
@@ -72,36 +82,21 @@ function readBody(req) {
 const server = http.createServer(async (req, res) => {
   // CORS preflight for the browser's POST + JSON body.
   if (req.method === 'OPTIONS' && req.url === INSTRUCTION_PATH) {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': CORS_ORIGIN,
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    });
-    res.end();
+    sendPreflight(res, 'POST, OPTIONS');
     return;
   }
 
   // CORS preflight for the token route (task 24.3) — handled the same way
   // as /instruction's, per the pinned contract.
   if (req.method === 'OPTIONS' && req.url === STT_TOKEN_PATH) {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': CORS_ORIGIN,
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    });
-    res.end();
+    sendPreflight(res, 'GET, OPTIONS');
     return;
   }
 
   // CORS preflight for the cancel route (design D28, task 32.1) — handled
   // exactly like /instruction's, per the pinned Milestone D contract.
   if (req.method === 'OPTIONS' && req.url === CANCEL_PATH) {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': CORS_ORIGIN,
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    });
-    res.end();
+    sendPreflight(res, 'POST, OPTIONS');
     return;
   }
 

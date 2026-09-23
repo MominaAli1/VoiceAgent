@@ -144,9 +144,8 @@ const instructionStatus = document.querySelector('#instruction-status');
 const INSTRUCTION_URL = `http://localhost:${INSTRUCTION_PORT}${INSTRUCTION_PATH}`;
 const CANCEL_URL = `http://localhost:${INSTRUCTION_PORT}${CANCEL_PATH}`;
 
-// The turnId from the most recently accepted instruction (task 29.1) —
-// exposed on `window.turnState` for poking at from the console.
-const turnState = { lastTurnId: null };
+// The turnId from the most recently accepted instruction (task 29.1).
+let lastTurnId = null;
 
 instructionForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -169,7 +168,7 @@ instructionForm.addEventListener('submit', async (event) => {
 
     if (res.status === 202) {
       const body = await res.json().catch(() => ({}));
-      turnState.lastTurnId = body.turnId ?? null;
+      lastTurnId = body.turnId ?? null;
       instructionInput.value = '';
       instructionStatus.dataset.state = 'sent';
       instructionStatus.textContent = 'Sent';
@@ -188,25 +187,6 @@ instructionForm.addEventListener('submit', async (event) => {
   }
 });
 
-// The Assistant publishes each instruction's outcome as `lastResult` on its
-// awareness state; show the newest one in the status area. A cancelled turn
-// (the user interrupted it) is not a failure — it shows "Stopped" (task 29.4).
-let lastResultAt = 0;
-provider.awareness.on('change', () => {
-  for (const [, state] of provider.awareness.getStates()) {
-    const result = state.lastResult;
-    if (!result || result.at <= lastResultAt) continue;
-    lastResultAt = result.at;
-    if (result.error === 'cancelled') {
-      instructionStatus.dataset.state = 'stopped';
-      instructionStatus.textContent = 'Stopped';
-    } else {
-      instructionStatus.dataset.state = result.ok ? 'sent' : 'error';
-      instructionStatus.textContent = result.ok ? 'Done' : `Couldn't do that: ${result.error}`;
-    }
-  }
-});
-
 // ---------------------------------------------------------------- spoken replies (Milestone D)
 
 // The Assistant publishes each reply on its awareness `reply` field (design
@@ -218,15 +198,33 @@ onSpeaking((speaking) => {
   assistantReplyEl.dataset.state = speaking ? 'speaking' : 'idle';
 });
 
+// The Assistant publishes each instruction's outcome as `lastResult`, and
+// each reply as `reply`, on the same awareness state — one scan per change
+// event covers both. A cancelled turn is not a failure; it shows "Stopped"
+// (task 29.4).
+let lastResultAt = 0;
 let lastReplyAt = 0;
 provider.awareness.on('change', () => {
   for (const [, state] of provider.awareness.getStates()) {
+    const result = state.lastResult;
+    if (result && result.at > lastResultAt) {
+      lastResultAt = result.at;
+      if (result.error === 'cancelled') {
+        instructionStatus.dataset.state = 'stopped';
+        instructionStatus.textContent = 'Stopped';
+      } else {
+        instructionStatus.dataset.state = result.ok ? 'sent' : 'error';
+        instructionStatus.textContent = result.ok ? 'Done' : `Couldn't do that: ${result.error}`;
+      }
+    }
+
     const reply = state.reply;
-    if (!reply || reply.at <= lastReplyAt) continue;
-    lastReplyAt = reply.at;
-    assistantReplyEl.textContent = reply.text;
-    if (reply.to === provider.awareness.clientID) {
-      speak(reply.text);
+    if (reply && reply.at > lastReplyAt) {
+      lastReplyAt = reply.at;
+      assistantReplyEl.textContent = reply.text;
+      if (reply.to === provider.awareness.clientID) {
+        speak(reply.text);
+      }
     }
   }
 });
@@ -296,4 +294,4 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 }
 
 // Handy for poking at the document from the browser console.
-Object.assign(window, { editor, ydoc, provider, Y, turnState });
+Object.assign(window, { editor, ydoc, provider, Y });

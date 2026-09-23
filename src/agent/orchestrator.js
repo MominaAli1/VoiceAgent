@@ -2,16 +2,11 @@
  * Orchestrator: turns one typed instruction into (at most) one document
  * edit, via Groq's tool-calling loop.
  *
- * `handleInstruction(text)` was the pinned entry point through Milestone C
- * (shared contract, Milestone B): `(text) => Promise`. It still works
- * exactly that way and is kept for callers (the harness) that only need the
- * eventual result.
- *
- * Milestone D (design D27/D28) needs the turnId synchronously, before the
- * instruction endpoint's HTTP response is sent, and needs a running turn to
- * be cancellable. `startInstruction(text, opts)` is the new entry point for
- * that: it mints the turn and returns `{ turnId, done }` immediately, the
- * turn itself running in the background exactly as before.
+ * `startInstruction(text, opts)` is the entry point. Milestone D (design
+ * D27/D28) needs the turnId synchronously, before the instruction
+ * endpoint's HTTP response is sent, and needs a running turn to be
+ * cancellable — so it mints the turn and returns `{ turnId, done }`
+ * immediately, with the turn itself running in the background.
  */
 
 import { connect, readDoc, editDoc } from './doc-client.js';
@@ -152,7 +147,7 @@ function publishReply(provider, turn, text, final) {
  * @param {{ from?: string }} [opts] - `from` is the instructing tab's
  *   awareness clientID (design D27); omit it and the reply is published to
  *   nobody in particular and simply isn't spoken.
- * @returns {{ turnId: string, done: Promise<{ ok: true, spoke?: boolean } | { ok: false, error: string }> }}
+ * @returns {{ turnId: string, done: Promise<{ ok: true } | { ok: false, error: string }> }}
  */
 export function startInstruction(text, opts = {}) {
   cancelCurrentTurn();
@@ -169,16 +164,6 @@ export function startInstruction(text, opts = {}) {
 }
 
 /**
- * Milestone B/C's pinned entry point, kept for callers (the harness) that
- * only need the eventual result: `(text) => Promise`.
- * @param {string} text
- * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
- */
-export function handleInstruction(text) {
-  return startInstruction(text).done;
-}
-
-/**
  * Run one turn end to end: read the live document, send it plus the
  * instruction and conversation history to Groq, dispatch any tool calls,
  * and retry (up to MAX_ATTEMPTS total) until the document changes, the
@@ -187,7 +172,7 @@ export function handleInstruction(text) {
  *
  * @param {{ turnId: string, from: string|null, cancelled: boolean, abort: AbortController }} turn
  * @param {string} text
- * @returns {Promise<{ ok: true, spoke?: boolean } | { ok: false, error: string }>}
+ * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
  */
 async function runTurn(turn, text) {
   const { doc, provider } = getConnection();
@@ -228,7 +213,7 @@ async function runTurn(turn, text) {
         // answer — it is spoken, not treated as a failure to call a tool.
         if (content) {
           publishReply(provider, turn, content, true);
-          return { ok: true, spoke: true };
+          return { ok: true };
         }
         if (documentChanged) {
           return { ok: true };
