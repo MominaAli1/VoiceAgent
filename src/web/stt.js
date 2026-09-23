@@ -255,6 +255,14 @@ export function createSpeechInput({ onPartial, onFinal, onError }) {
   // Same hook the editor uses to withdraw presence (design D10).
   window.addEventListener('pagehide', () => closeSession('page hidden'));
 
+  // Design D32: open the session on page load rather than waiting for the
+  // first press, so a cold press doesn't pay the ~2.5-2.8s of setup latency
+  // measured in Milestone C. The idle timer closes it the same as any other
+  // session if nobody presses. The microphone itself is untouched here — no
+  // permission prompt, no recording indicator — until the first press.
+  openSession();
+  scheduleIdleClose();
+
   return { startPress, endPress };
 }
 

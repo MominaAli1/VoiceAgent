@@ -129,18 +129,20 @@ export const SYSTEM_PROMPT =
  * registered.
  *
  * @param {Array<{role: string, content?: string, tool_calls?: any[], tool_call_id?: string, name?: string}>} messages
- * @param {{ signal?: AbortSignal }} [opts]
+ * @param {{ signal?: AbortSignal }} [opts] - `signal` aborts an in-flight
+ *   request when the turn is cancelled (design D28/D30); the resulting
+ *   rejection is the caller's to interpret as a cancellation, not a failure.
+ *   Passed as the SDK's second (request-options) argument — `groq-sdk`'s
+ *   `create(body, options)` only honors `signal` there, not inside `body`.
  * @returns {Promise<import('groq-sdk').Groq.Chat.Completions.ChatCompletion>}
  * @throws {RateLimitError} if Groq responds with a rate-limit error
  */
 export async function chat(messages, opts = {}) {
   try {
-    return await client.chat.completions.create({
-      model: GROQ_MODEL,
-      messages,
-      tools: TOOLS,
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
+    return await client.chat.completions.create(
+      { model: GROQ_MODEL, messages, tools: TOOLS },
+      { signal: opts.signal },
+    );
   } catch (err) {
     if (err instanceof Groq.RateLimitError) {
       throw new RateLimitError(err);
