@@ -97,3 +97,19 @@ export const STT_FINAL_WAIT_MS = 1500;
 
 /** Push-to-talk key, matched on KeyboardEvent.code. Design D22. */
 export const PTT_KEY_CODE = 'ControlRight';
+
+/**
+ * --- Milestone D additions (talking back and interruption) ---
+ *
+ * Pinned by the Milestone D shared contract in
+ * openspec/changes/collaborative-document/tasks.md.
+ */
+
+/** TTS engine: 'browser' uses built-in speechSynthesis. Design D26. */
+export const TTS_ENGINE = 'browser';
+
+/** Cancel route on the agent's existing HTTP server (INSTRUCTION_PORT). */
+export const CANCEL_PATH = '/cancel';
+
+/** Split longer sentences so Chrome cannot truncate them. Design D26. */
+export const TTS_MAX_SENTENCE_CHARS = 180;

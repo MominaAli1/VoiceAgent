@@ -117,22 +117,29 @@ export const SYSTEM_PROMPT =
   'does, do not guess, estimate, or invent the fact and do not call ' +
   'edit_doc with a fabricated value. Instead respond in plain text saying ' +
   'you cannot verify that information yet because web search is not ' +
-  'available, and make no document change.';
+  'available, and make no document change.\n\n' +
+  'When you respond, include a short spoken sentence in your content field ' +
+  '— what you are about to do (e.g. "Let me update that for you.") or the ' +
+  'answer to a factual question. This sentence will be spoken aloud to the ' +
+  'user. Keep it to one short sentence. Always still call the appropriate ' +
+  'tool when the instruction implies a document change.';
 
 /**
  * Send a chat-completion request to Groq with the pinned tool schemas
  * registered.
  *
  * @param {Array<{role: string, content?: string, tool_calls?: any[], tool_call_id?: string, name?: string}>} messages
+ * @param {{ signal?: AbortSignal }} [opts]
  * @returns {Promise<import('groq-sdk').Groq.Chat.Completions.ChatCompletion>}
  * @throws {RateLimitError} if Groq responds with a rate-limit error
  */
-export async function chat(messages) {
+export async function chat(messages, opts = {}) {
   try {
     return await client.chat.completions.create({
       model: GROQ_MODEL,
       messages,
       tools: TOOLS,
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
   } catch (err) {
     if (err instanceof Groq.RateLimitError) {
