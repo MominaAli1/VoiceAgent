@@ -1056,3 +1056,160 @@ Milestone D. Rollback is `git revert`.
 - Does the model reliably choose `append_doc` over `edit_doc` when asked to
   *add* a figure? Measured in Gate B (39.5); if not, the fallback is to fold
   appending into `edit_doc` with an explicit "append" mode.
+
+# Milestone F — Live Deployment
+
+## Context
+
+Builds on Milestones A-E. Every address the system uses today is a localhost
+constant, which is exactly what made local development simple and what now has
+to change. D-numbering continues from D38.
+
+Facts that shape this milestone:
+
+- The microphone requires a secure context: `https` everywhere except
+  `localhost`.
+- The relay keeps documents in memory only (Milestone A non-goal). A restart
+  wipes every room.
+- Render's free tier runs Node services with websockets, injects `PORT`, and
+  **sleeps a service after ~15 minutes idle**, waking it in ~30-60 s.
+- The agent holds one Yjs connection, one turn and one conversation history,
+  all module-level singletons, and joins `ROOM` at startup.
+
+### D39 — Three Render services, not one
+
+| Service | What | Notes |
+| --- | --- | --- |
+| `voice-doc-web` | Static site: `vite build` output | Free static hosting, no sleep |
+| `voice-doc-relay` | `npx y-websocket --port $PORT` | Web service; websockets only |
+| `voice-doc-agent` | `node src/agent/index.js` | Web service; holds all three API keys |
+
+Rejected: running the relay inside the agent process to save a service. The
+standing rule since Milestone A is that the relay is the stock upstream
+binary, never a bespoke one, and two small services are easier to reason
+about than one process doing both jobs.
+
+**Sleeping is the trade-off accepted for the free tier.** A cold first visit
+costs ~30-60 s while both Node services wake. Mitigation is procedural, not
+technical: the demo checklist opens the URL and sends one instruction five
+minutes before judging.
+
+### D40 — Addresses come from the environment, with localhost defaults
+
+`src/config.js` stays the single source of truth; the three deployment-varying
+values read the environment:
+
+```js
+const env = (key) => (typeof process !== 'undefined' ? process.env?.[key] : undefined)
+                  ?? import.meta.env?.[`VITE_${key}`];
+
+export const WS_URL     = env('WS_URL')     ?? 'ws://[::1]:1234';
+export const AGENT_URL  = env('AGENT_URL')  ?? 'http://localhost:3001';
+export const CORS_ORIGIN= env('CORS_ORIGIN')?? 'http://localhost:5173';
+```
+
+- The browser gets `VITE_WS_URL` and `VITE_AGENT_URL` baked in at build time by
+  Vite; the agent reads `WS_URL` and `CORS_ORIGIN` at runtime.
+- `INSTRUCTION_PORT` stops being part of the browser's URL construction:
+  the browser uses `AGENT_URL + INSTRUCTION_PATH`, because in production the
+  agent is behind `https` on port 443, not 3001.
+- Locally, with nothing set, every value is what it is today.
+
+### D41 — One room per visitor, and the agent joins rooms on demand
+
+The room name comes from the page URL: `?room=<id>`. If absent, the browser
+generates a short random id, rewrites the URL with `history.replaceState`, and
+uses it. Sharing the URL shares the document — that is how two tabs, or a
+judge and a teammate, end up in the same room deliberately rather than by
+accident.
+
+The agent changes shape to match. Today's module-level singletons become a map
+keyed by room:
+
+- `getConnection(room)` — creates and caches a Yjs connection per room.
+- `currentTurn` and `history` — per room, so one visitor's interruption or
+  conversation never touches another's.
+- The instruction and cancel contracts gain a required `room` field. A request
+  without `room` falls back to the default `ROOM`, so the harness and existing
+  scripts keep working.
+- Rooms are dropped after `ROOM_IDLE_MS` (10 minutes) with no instruction: the
+  connection is closed and the history discarded. Without this, a public URL
+  accumulates a connection per visitor forever.
+
+**The agent no longer connects at startup**; it connects when a room first
+needs it. The startup diagnostics (share keys, `FIELD`) move to the first
+connection per room, keeping D4's check.
+
+### D42 — Spending is bounded per visitor, in memory
+
+Every visitor spends the team's Groq, AssemblyAI and Tavily credit. Without a
+limit, one script pointed at the live agent drains all three and the demo dies.
+
+A small in-memory limiter, keyed by client IP (Render forwards it in
+`x-forwarded-for`):
+
+| Route | Limit |
+| --- | --- |
+| `GET /stt-token` | `RATE_LIMIT_TOKENS_PER_MIN` (5/min) — matches AssemblyAI's own free-plan session limit |
+| `POST /instruction` | `RATE_LIMIT_INSTRUCTIONS_PER_MIN` (10/min) |
+| both | `RATE_LIMIT_DAILY` (200/day) across all routes |
+| `POST /cancel` | unlimited — cancelling must always work |
+
+Over the limit returns `429 { message }`, which the page already knows how to
+display (it shows any non-2xx `message`). The counters reset on restart, which
+is acceptable: a sleeping free service restarts often, and the limits exist to
+stop runaway loops, not determined attackers.
+
+**No payment method on any of the three accounts.** That converts the worst
+case from a bill into "the demo stops working", which is recoverable and
+bounded.
+
+### D43 — Secrets live in Render's environment, never in the repo
+
+`GROQ_API_KEY`, `ASSEMBLYAI_API_KEY` and `TAVILY_API_KEY` are set on the
+`voice-doc-agent` service only. The static site is built with `VITE_WS_URL`
+and `VITE_AGENT_URL` and nothing else — a key in a Vite variable would be
+compiled into the JavaScript every visitor downloads, which is the single
+worst mistake available in this milestone.
+
+`.env` stays local-only and gitignored, as it is today.
+
+### D44 — A fixture document per room, seeded by the agent
+
+A judge opening a fresh URL would otherwise see an empty page and have nothing
+to instruct the agent about. When the agent joins a room and the document is
+empty after sync, it seeds two short paragraphs (the brief's demo fixture:
+"Doc holds two rough paragraphs").
+
+Seeding is **not** throttled typing — it is an instant write, before anyone is
+watching, and it happens only when the fragment is empty, so it can never
+overwrite a visitor's work or double-seed after a reconnect.
+
+## Risks / Trade-offs
+
+- **Free-tier sleep is the biggest demo risk.** Procedural mitigation only
+  (wake it before judging). Paying for one month of the cheapest always-on
+  tier is the fallback if the demo is remote and unattended.
+- **Per-room state is a real refactor of the agent**, touching the orchestrator
+  and doc-client. It is the largest code change in this milestone and the most
+  likely to break Milestones B-E behaviour; Gate B re-runs the earlier gates
+  against a named room.
+- **In-memory rate limits reset on restart** and are per instance. Adequate
+  for a hackathon; not a security control.
+- **The relay's memory is still the only storage.** A relay restart wipes every
+  room; visitors see an empty document, re-seeded on the next instruction.
+
+## Migration Plan
+
+Additive and backwards compatible: with no environment variables set and no
+`?room=`, the system behaves exactly as it does today. Rollback is a Render
+redeploy of the previous commit.
+
+## Open Questions
+
+- Does Render's free web service keep a websocket open long enough for the
+  relay, or does it drop idle connections before the 15-minute sleep? Measured
+  on the first deploy (41.4).
+- Is `?room=<id>` enough privacy for judging, or does the room id need to be
+  long enough to be unguessable? Default to a 10-character id and revisit if
+  it matters.

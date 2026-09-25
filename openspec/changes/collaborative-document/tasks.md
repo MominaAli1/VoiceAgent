@@ -959,6 +959,114 @@ Relay, web and agent running with all three keys; **speakers, not headphones**.
 
 ---
 
+# Milestone F — Live Deployment
+
+**Runs in parallel with Milestone E.** Start with group 41 (the trial deploy)
+before writing any of the rest: a surprise found on day one is cheap, the same
+surprise found on day five is not.
+
+| Track | Owner | Scope | Proved by |
+| --- | --- | --- | --- |
+| A | **Momina** | Environment-driven addresses, room-per-visitor in the browser, the build, the static site | Gate A (group 43) — the built site running against a local relay and agent |
+| B | **Rumaisa** | Per-room connections/turns/history in the agent, rate limits, fixture seeding, the two Render services | Gate B (group 44) — `curl` against the deployed agent |
+| Joint | **Both** | The live URL | Milestone F acceptance (group 45) |
+
+---
+
+## Tech stack restrictions (Milestone F)
+
+**No new dependencies.** The rate limiter is a `Map` and a timestamp; no
+Express, no rate-limit package, no Docker beyond what Render generates.
+
+**The relay stays the stock `y-websocket` binary** (design D8, carried
+forward). Do not write or wrap a relay to save a service.
+
+**No API key may reach the browser bundle.** Only `VITE_WS_URL` and
+`VITE_AGENT_URL` are exposed to Vite; anything secret stays on the agent
+service (design D43).
+
+**`src/config.js` stays the single source of truth.** Environment variables
+are read there, not scattered through modules (design D40).
+
+**No payment method on the Groq, AssemblyAI or Tavily accounts.**
+
+**Nothing from later phases.** No PWA, no accounts or login, no custom domain,
+no database.
+
+---
+
+## Shared contract (pinned — do not renegotiate mid-flight, Milestone F)
+
+- **`src/config.js`** exports `WS_URL`, `AGENT_URL`, `CORS_ORIGIN` read from
+  the environment with today's localhost values as defaults, plus
+  `ROOM_IDLE_MS` (`600000`), `RATE_LIMIT_TOKENS_PER_MIN` (`5`),
+  `RATE_LIMIT_INSTRUCTIONS_PER_MIN` (`10`), `RATE_LIMIT_DAILY` (`200`).
+- **The browser builds agent URLs from `AGENT_URL` + the path constants**, not
+  from `INSTRUCTION_PORT`.
+- **Room:** the browser reads `?room=<id>` from the URL, generating a
+  10-character id and rewriting the URL when absent.
+- **Instruction and cancel contracts gain `room`:** `POST /instruction`
+  `{ text, from?, room? }`, `POST /cancel` `{ room? }`. A missing `room` means
+  the default `ROOM`, so existing scripts and the harness keep working.
+- **Over the limit:** `429 { message }` on `/stt-token` and `/instruction`.
+
+---
+
+## 41. Both — Trial deploy first (do this before anything else)
+
+- [ ] 41.1 Create the three Render services (static site, relay, agent) from the current `main`, wired to today's localhost defaults where nothing else is possible — the point is to find hosting surprises, not to work
+- [ ] 41.2 Confirm the relay accepts a websocket over `wss` from the deployed page, and record how long a cold wake takes
+- [ ] 41.3 Confirm the agent's `/stt-token` responds over `https` and that Render injects `PORT` as expected for both Node services
+- [ ] 41.4 Record whether Render's free tier drops an idle websocket before the sleep timer (design open question)
+- [ ] 41.5 Write down every surprise found, and only then start group 42
+
+## 42. Momina — Addresses, rooms and the build
+
+- [ ] 42.1 Make `src/config.js` read `WS_URL`, `AGENT_URL` and `CORS_ORIGIN` from the environment with today's values as defaults, working in both Vite (`VITE_*`) and Node (design D40); push ahead of the rest of Track A
+- [ ] 42.2 Replace the browser's `http://localhost:${INSTRUCTION_PORT}${PATH}` constructions in `main.js` and `stt.js` with `AGENT_URL + PATH`
+- [ ] 42.3 Read `?room=<id>` from the page URL, generating a 10-character id and rewriting the URL when absent; use it for the Yjs room and send it with every instruction and cancel (design D41)
+- [ ] 42.4 Show the room id (or a "copy link" control) in the header, so two people can deliberately share a document
+- [ ] 42.5 Confirm `vite build` produces a working static bundle with `VITE_WS_URL`/`VITE_AGENT_URL` set, and that **no API key string appears anywhere in `dist/`** — grep the built files
+
+## 43. Momina — Gate A (verifiable without Render)
+
+- [ ] 43.1 With the environment variables unset, `npm run dev:web` behaves exactly as it does today — same room, same addresses
+- [ ] 43.2 With them set to the local relay and agent, the **built** bundle (served by `vite preview`) edits, speaks and takes instructions
+- [ ] 43.3 Two browsers with different `?room=` ids do not see each other's text; the same id does
+- [ ] 43.4 A fresh visit with no `?room=` generates an id, rewrites the URL, and a reload keeps the same document
+- [ ] 43.5 Grep `dist/` for `gsk_`, `tvly-` and the AssemblyAI key: zero matches
+
+## 44. Rumaisa — Per-room agent, limits and seeding
+
+- [ ] 44.1 Make the agent's Yjs connection, turn state and conversation history per room (`getConnection(room)` and friends), keeping today's behaviour when no room is given (design D41); push the contract additions ahead of the rest of Track B
+- [ ] 44.2 Accept `room` on `/instruction` and `/cancel`; a cancel only cancels that room's turn
+- [ ] 44.3 Drop a room's connection and history after `ROOM_IDLE_MS` with no instruction
+- [ ] 44.4 Seed the fixture's two paragraphs when the agent joins a room whose document is empty after sync — an instant write, never throttled, never overwriting existing content (design D44)
+- [ ] 44.5 Add the in-memory rate limiter per design D42 (`x-forwarded-for`, per-route per-minute limits, a daily ceiling, `429 { message }`, `/cancel` exempt)
+- [ ] 44.6 Bind `process.env.PORT` when set, falling back to `INSTRUCTION_PORT`, and read `CORS_ORIGIN` from the environment
+- [ ] 44.7 Set the three API keys as Render environment variables on the agent service only, and confirm none is set on the static site or relay (design D43)
+
+## 45. Rumaisa — Gate B (against the deployed agent, no browser)
+
+- [ ] 45.1 Milestones B-E still work in a named room: `curl` an instruction with `room` set, and the document changes — re-runs the earlier gates' core claim against the refactor
+- [ ] 45.2 Two different rooms do not interfere: an instruction in room A never changes room B's document, and cancelling in A does not stop B's turn
+- [ ] 45.3 A room with no instructions for `ROOM_IDLE_MS` is dropped (log line), and a later instruction for it works again from a fresh connection
+- [ ] 45.4 The fixture seeds exactly once per empty room, and never overwrites an existing document
+- [ ] 45.5 Rate limits fire: the 6th token request in a minute and the 11th instruction in a minute both return `429 { message }`, and `/cancel` still works while limited
+- [ ] 45.6 The deployed agent's logs contain no key and no token, and `/stt-token` still returns only `{ token }`
+
+## 46. Joint — Milestone F acceptance (the live URL)
+
+- [ ] 46.1 On a phone and a laptop, on different networks, the live URL loads over `https` and the editor works
+- [ ] 46.2 Push-to-talk works on the live URL: the microphone prompt appears, speech transcribes, the document edits, and the agent speaks
+- [ ] 46.3 A search instruction works end to end on the live URL, with a source written in (Milestone E)
+- [ ] 46.4 Two people on the same `?room=` link edit together with visible carets; two people on different links are isolated
+- [ ] 46.5 A cold start (after the services sleep) is measured end to end, and the number goes into the demo checklist
+- [ ] 46.6 With all three keys removed from Render, the live app still loads and shows clear messages rather than breaking — the failure mode a judge might hit if credit runs out
+- [ ] 46.7 README documents the deployment: the three services, their environment variables, how to redeploy, and the wake-up step before a demo
+
+---
+
 # Later
 
 - [ ] Turn the app into a PWA

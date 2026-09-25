@@ -370,3 +370,70 @@ Explicitly out of scope: ElevenLabs, a fixture-reset key, the demo recording
 - **Cost:** Tavily's free tier is 1,000 credits a month; a basic search is 1
   credit. Rehearsal will use tens, not hundreds.
 - **Downstream:** Milestone F rehearses this as demo beat three.
+
+# Milestone F — Live Deployment
+
+## Why
+
+The submission is a complete project with a **live URL judges can open and
+test**, so the app has to leave `localhost`. Nothing in the system is built
+for that yet: the relay, the agent and the allowed page origin are hard-wired
+to `localhost`, the microphone will not work off `https`, every visitor lands
+in the *same* document as the demo, and any visitor spends the team's Groq,
+AssemblyAI and Tavily credit.
+
+This milestone is scheduled **in parallel with Milestone E, not after it**.
+With the deadline close, an unknown found on the first deploy is far more
+expensive than one found on the last day.
+
+## What Changes
+
+- **Addresses become configuration.** `src/config.js` keeps being the single
+  source of truth, but reads the relay URL, the agent's base URL and the
+  allowed page origin from the environment, falling back to today's localhost
+  values so local development is unchanged.
+- **A room per visitor.** The room name comes from the page URL
+  (`?room=<id>`), generated on first visit if absent. The agent no longer
+  joins one fixed room at startup: it joins a visitor's room on demand, keeps
+  one connection, turn state and conversation history **per room**, and drops
+  a room's connection after an idle period.
+- **Three services on Render:** the built editor page as a static site, the
+  stock y-websocket relay, and the agent. Both Node services bind Render's
+  `PORT`.
+- **Rate limits on the agent's routes,** because every visitor spends the
+  team's credit: per-IP limits on `/stt-token` and `/instruction`, plus a
+  daily ceiling, returning `429` with a message the page shows.
+- **A fixture document per room,** seeded by the agent when it joins an empty
+  room, so a judge landing on a fresh URL sees something to edit rather than a
+  blank page — and so a relay restart, which wipes memory, is survivable.
+
+Explicitly out of scope: persistence beyond the relay's memory, accounts or
+login, a custom domain, the PWA, and any paid hosting tier.
+
+## Capabilities
+
+### New Capabilities
+
+- `deployment`: what the live service must do — reachable over `https`/`wss`,
+  a private document per visitor, the team's credentials never reaching the
+  browser, and spending bounded per visitor.
+
+### Modified Capabilities
+
+- `collaborative-document`: the room is per visitor rather than one constant.
+- `agent-brain`: turn state and conversation history are per room.
+
+## Impact
+
+- **New dependencies:** none. Rate limiting is a small in-memory counter; no
+  framework.
+- **New configuration:** `WS_URL`, `AGENT_URL` and `CORS_ORIGIN` from the
+  environment (with localhost defaults); `PORT` on both Node services;
+  `RATE_LIMIT_*`; the three API keys as Render environment variables.
+- **New code:** per-room connection/turn/history handling in the agent, room
+  selection in the browser, a rate limiter, a fixture seed, and Render service
+  definitions.
+- **Risk this carries:** free Render services sleep when idle and take
+  ~30-60 s to wake. The demo plan must include waking them beforehand.
+- **Downstream:** Milestone G (rehearsal) rehearses against the live URL, not
+  `localhost`.
