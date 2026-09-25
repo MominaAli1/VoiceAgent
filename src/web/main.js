@@ -12,7 +12,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 
-import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, CANCEL_PATH, PTT_KEY_CODE } from '../config.js';
+import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, CANCEL_PATH, PTT_KEY_CODE, SEARCH_ACK } from '../config.js';
 import { randomUserColor } from '../palette.js';
 import { createSpeechInput } from './stt.js';
 import { speak, stop as stopSpeaking, onSpeaking } from './tts.js';
@@ -57,7 +57,15 @@ const editor = new Editor({
     // undoRedo:false, NOT history:false — starter-kit v3 has no `history` key,
     // so the old name is silently ignored and leaves ProseMirror history on,
     // which corrupts the shared state. See design.md D2.
-    StarterKit.configure({ undoRedo: false }),
+    //
+    // link:false — StarterKit registers @tiptap/extension-link with
+    // autolink:true by default. A URL streamed in by the agent (Milestone E,
+    // task 35.3) is followed by whitespace like any other text, which would
+    // trigger autolink's appendTransaction and wrap it in a link mark on
+    // every tab independently. The task calls for plain text, not link
+    // parsing, so the extension is disabled outright rather than relying on
+    // remote-sync transactions happening not to trigger it.
+    StarterKit.configure({ undoRedo: false, link: false }),
 
     // `field` passed explicitly so both sides are pinned to the same constant
     // rather than relying on the extension's default (design REQ-D1b).
@@ -198,6 +206,23 @@ onSpeaking((speaking) => {
   assistantReplyEl.dataset.state = speaking ? 'speaking' : 'idle';
 });
 
+// ---------------------------------------------------------------- search out loud (Milestone E)
+
+// A search has no visible sign it's in flight otherwise — distinct from
+// "speaking" (assistant-reply, above) and from the streaming edit itself
+// (task 35.2). The reply/lastResult/cancel contract (design D27/D28) is
+// reused unchanged; a "search is running" signal isn't part of it, so this
+// infers it from the one guaranteed tell: the orchestrator's own fallback
+// acknowledgement text (design D35, SEARCH_ACK) arriving on the `reply`
+// field. A model that writes its own acknowledgement instead of the canned
+// line won't trigger this — there is no field in the pinned reply shape that
+// says "a search is about to run" to catch that case.
+const agentStatusEl = document.querySelector('#agent-status');
+
+function setSearching(searching) {
+  agentStatusEl.dataset.state = searching ? 'searching' : 'idle';
+}
+
 // The Assistant publishes each instruction's outcome as `lastResult`, and
 // each reply as `reply`, on the same awareness state — one scan per change
 // event covers both. A cancelled turn is not a failure; it shows "Stopped"
@@ -209,6 +234,7 @@ provider.awareness.on('change', () => {
     const result = state.lastResult;
     if (result && result.at > lastResultAt) {
       lastResultAt = result.at;
+      setSearching(false); // the turn ended or was cancelled either way (task 35.2)
       if (result.error === 'cancelled') {
         instructionStatus.dataset.state = 'stopped';
         instructionStatus.textContent = 'Stopped';
@@ -225,6 +251,7 @@ provider.awareness.on('change', () => {
       if (reply.to === provider.awareness.clientID) {
         speak(reply.text);
       }
+      setSearching(reply.text === SEARCH_ACK);
     }
   }
 });
@@ -264,6 +291,10 @@ function pressStart() {
   // lost /cancel costs nothing since the next instruction cancels the old
   // turn server-side anyway (design D28) — then the existing press path.
   stopSpeaking();
+  // Clear the searching indicator the same way — immediately, client-side,
+  // without waiting for the server's lastResult to confirm the cancel
+  // (task 36.3).
+  setSearching(false);
   fetch(CANCEL_URL, { method: 'POST' }).catch(() => {});
   speech.startPress();
 }

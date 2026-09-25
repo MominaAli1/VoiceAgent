@@ -122,3 +122,33 @@ export const CANCEL_PATH = '/cancel';
  * sentences no longer than this so nothing is cut off (design D26).
  */
 export const TTS_MAX_SENTENCE_CHARS = 180;
+
+/**
+ * --- Milestone E additions (search out loud) ---
+ *
+ * Pinned by the Milestone E shared contract in
+ * openspec/changes/collaborative-document/tasks.md.
+ */
+
+/** Tavily's search endpoint — one plain `fetch`, no SDK (design D33). */
+export const TAVILY_URL = 'https://api.tavily.com/search';
+
+/** Results per search, per the brief; also Tavily's request `max_results` (design D33/D37). */
+export const SEARCH_MAX_RESULTS = 3;
+
+/** Each result's `content` is truncated to this many characters, at a word boundary (design D37). */
+export const SEARCH_SNIPPET_CHARS = 500;
+
+/** Longest a single Tavily request may take before the turn treats it as failed (design D33). */
+export const SEARCH_TIMEOUT_MS = 10000;
+
+/** Cap on `search_web` calls per turn, so a model that dislikes its results can't spend the whole turn searching (design D37). */
+export const SEARCH_MAX_PER_TURN = 2;
+
+/**
+ * Fallback spoken acknowledgement, published by the orchestrator itself if
+ * the model calls `search_web` without saying anything first — guarantees
+ * the brief's "speaks before the search runs" even when the model doesn't
+ * (design D35). The model's own words win when present; this is the floor.
+ */
+export const SEARCH_ACK = 'Let me look that up.';

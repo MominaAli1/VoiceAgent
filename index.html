@@ -43,6 +43,10 @@
           autocomplete="off"
         />
         <button id="instruction-submit" type="submit">Send</button>
+        <!-- Distinct from "speaking" (assistant-reply) and from the visible
+             streaming edit itself — a search has no other visible sign it's
+             in flight (design D35/task 35.2). -->
+        <span id="agent-status" class="agent-status" data-state="idle" role="status" aria-live="polite"></span>
         <span id="instruction-status" class="instruction-status" role="status"></span>
       </form>
     </footer>
