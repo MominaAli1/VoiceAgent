@@ -217,6 +217,15 @@ main { padding: 40px 20px 25vh; }
 .instruction-status[data-state='error'] { color: #e5484d; }
 .instruction-status[data-state='stopped'] { color: var(--muted); }
 
+/* ---- search out loud (Milestone E) ---- */
+
+.agent-status {
+  font-size: 12.5px;
+  color: var(--muted);
+  flex: none;
+}
+.agent-status[data-state='searching']::before { content: '🔍 Searching…'; }
+
 /* ---- remote carets (collaboration-caret v3 class names) ---- */
 
 .collaboration-carets__caret {

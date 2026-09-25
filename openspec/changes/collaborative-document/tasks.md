@@ -900,19 +900,25 @@ ElevenLabs, no always-on listening, no long-document retrieval.
 
 ## 35. Momina — Config and the searching state
 
-- [ ] 35.1 Add the `TAVILY_URL`, `SEARCH_*` and `SEARCH_ACK` constants to `src/config.js` as pinned, each with a one-line comment naming its design decision; add `TAVILY_API_KEY=` to `.env.example`; push ahead of the rest of Track A
-- [ ] 35.2 Show a "searching" state in the UI while a search is in flight, distinct from "speaking" and from "typing an edit", and clear it when the turn ends or is cancelled
-- [ ] 35.3 Make sure a URL written into the document renders readably in the editor (plain text is fine — do not add link parsing, just confirm nothing mangles it)
-- [ ] 35.4 Polish carry-over: type by hand in one tab while the agent appends a paragraph in another; no corruption, no lost characters (closes Milestone D's 34.7 for the append path too)
+- [x] 35.1 Add the `TAVILY_URL`, `SEARCH_*` and `SEARCH_ACK` constants to `src/config.js` as pinned, each with a one-line comment naming its design decision; add `TAVILY_API_KEY=` to `.env.example`; push ahead of the rest of Track A — **done**
+- [x] 35.2 Show a "searching" state in the UI while a search is in flight, distinct from "speaking" and from "typing an edit", and clear it when the turn ends or is cancelled — **done:** `#agent-status` shows "🔍 Searching…" (separate element from `#assistant-reply`'s "speaking" state); set when a `reply` arrives whose text is exactly `SEARCH_ACK`, cleared on the next `lastResult` (turn end or cancel) or the next differently-worded `reply`. **Known gap:** the pinned `reply` shape (D27, reused unchanged this milestone) carries no "a search is about to run" field, so this only fires for the canned fallback acknowledgement — a model that supplies its own wording before a search (D35's stated common case) won't trigger it. Flagging rather than silently narrowing; closing it for real needs a contract addition Rumaisa would need to agree to
+- [x] 35.3 Make sure a URL written into the document renders readably in the editor (plain text is fine — do not add link parsing, just confirm nothing mangles it) — **done, and found a real latent issue:** StarterKit registers `@tiptap/extension-link` with `autolink: true` by default, unconditionally — nothing before this task had disabled it. Its `appendTransaction` autolink logic runs on every transaction including remote Yjs sync, so a streamed-in URL followed by whitespace would have been wrapped in a link mark independently on every tab. Fixed by `StarterKit.configure({ undoRedo: false, link: false })`, matching the task's "plain text, not link parsing"
+- [ ] 35.4 Polish carry-over: type by hand in one tab while the agent appends a paragraph in another; no corruption, no lost characters (closes Milestone D's 34.7 for the append path too) — **not done:** `append_doc` (Rumaisa's Track B, task 38.1) doesn't exist yet to test against. It goes through the same `typeIntoNewParagraph()`/`streamInto()` chunking primitive already proven safe under concurrent hand-typing (Milestone B task 18.5), so this is expected to hold by construction — but needs a live two-tab run once `append_doc` lands to actually check off
 
 ## 36. Momina — Gate A (verifiable without a Tavily key or Rumaisa's work)
 
 Uses the same throwaway awareness publisher and mock HTTP server as Milestone D's Gate A.
 
-- [ ] 36.1 A scripted acknowledgement reply ("Let me look that up.") is spoken, and the searching state appears while a scripted turn is in flight
-- [ ] 36.2 A scripted appended paragraph containing a URL renders correctly in both tabs, with the URL intact
-- [ ] 36.3 Pressing push-to-talk during the searching state clears it and stops the voice, exactly as it does mid-edit
-- [ ] 36.4 With no Tavily key configured anywhere, the page behaves exactly as it does after Milestone D — nothing new breaks
+**Not run this session** — same blocker as Milestone D's Gate A (group 30):
+this sandbox has no real browser, so `speechSynthesis`, `getUserMedia`, and
+actual rendered DOM state can't be exercised. The logic each check would
+exercise was traced by hand against 35.2/35.3's implementation above, but
+that is not the same as running it.
+
+- [ ] 36.1 A scripted acknowledgement reply ("Let me look that up.") is spoken, and the searching state appears while a scripted turn is in flight — **needs a real browser**
+- [ ] 36.2 A scripted appended paragraph containing a URL renders correctly in both tabs, with the URL intact — **needs a real browser**
+- [ ] 36.3 Pressing push-to-talk during the searching state clears it and stops the voice, exactly as it does mid-edit — **needs a real browser** (client-side clear-on-press is implemented per 35.2's note, but unexercised live)
+- [ ] 36.4 With no Tavily key configured anywhere, the page behaves exactly as it does after Milestone D — nothing new breaks — **needs a real browser**; `vite build` succeeds and no new required config was added to the page's own code path, which is as far as this sandbox can confirm
 
 ## 37. Rumaisa — Tavily client and tool consolidation
 
