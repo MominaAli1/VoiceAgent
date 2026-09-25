@@ -830,6 +830,12 @@ live HTTP tests against the running agent.
 
 Relay, web and agent running with both keys; **speakers, not headphones**.
 
+**Reported working in a manual run on Sep 25** — speaking and interruption
+were tried by hand and behaved correctly. The boxes below stay unticked
+because none of the *measured* items were recorded (34.2's under-1-s figure,
+34.3's 200 ms audio stop), Gate A (group 30) was never run, and 34.9's README
+update is still outstanding. Tick them as they are actually measured.
+
 - [ ] 34.1 Speak an edit instruction: the agent speaks a short line and the document edit streams in; both tabs see the edit, only the instructing tab speaks
 - [ ] 34.2 The first spoken word starts under 1 s after the final transcript (brief's budget) — record the measured number even if it fails
 - [ ] 34.3 **Brief's gate:** press push-to-talk mid-sentence while the agent is speaking and typing — audio stops within 200 ms, insertion stops within one chunk, and the document keeps what was typed without corruption
@@ -839,6 +845,117 @@ Relay, web and agent running with both keys; **speakers, not headphones**.
 - [ ] 34.7 Typing by hand while the agent speaks and types produces no corruption and no lost characters
 - [ ] 34.8 Run with speakers: the agent's own voice is never transcribed as an instruction
 - [ ] 34.9 README updated: the voice (which engine, and that it uses the machine's default voice), how to interrupt, and what an interrupted edit leaves behind
+
+---
+
+# Milestone E — Search Out Loud
+
+| Track | Owner | Scope | Proved by |
+| --- | --- | --- | --- |
+| A | **Momina** | Config additions, the "searching" state in the UI, source visibility, and the concurrent-typing polish | Gate A (group 36) — proven with a scripted reply publisher, no Tavily key needed |
+| B | **Rumaisa** | Tavily client, tool consolidation, `append_doc`, the search flow and its acknowledgement | Gate B (group 39) — proven with `curl` and the agent log, no browser |
+| Joint | **Both** | Integration | Milestone E acceptance (group 40) — demo beat three |
+
+---
+
+## Tech stack restrictions (Milestone E)
+
+**No new dependencies.** Tavily is one `fetch`; no SDK, no HTTP client.
+
+**`TAVILY_API_KEY` never leaves the agent process** — not in `src/config.js`,
+not in the browser, never logged (same rule as D19/D25).
+
+**A search failure never fails the turn, and never produces an unsourced
+fact** (design D38).
+
+**One definition per tool** (design D34): after this change, `search_web`'s
+schema and handler exist only in `src/agent/search-web.js`.
+
+**Only insertion is throttled and cancellable** — `append_doc` goes through
+`typing.js` like every other insertion (D17, D30).
+
+**Nothing from later phases.** No fixture-reset key, no demo recording, no
+ElevenLabs, no always-on listening, no long-document retrieval.
+
+---
+
+## Shared contract (pinned — do not renegotiate mid-flight, Milestone E)
+
+- **`src/config.js` additions** (Momina pushes first): `TAVILY_URL`
+  (`'https://api.tavily.com/search'`), `SEARCH_MAX_RESULTS` (`3`),
+  `SEARCH_SNIPPET_CHARS` (`500`), `SEARCH_TIMEOUT_MS` (`10000`),
+  `SEARCH_MAX_PER_TURN` (`2`), `SEARCH_ACK` (`'Let me look that up.'`).
+- **`searchWeb(args, opts)`** in `src/agent/search-web.js` (Rumaisa pushes
+  first): `args = { query }`, `opts = { signal }`. Resolves to
+  `{ available: true, results: [{ title, url, content }] }` (at most
+  `SEARCH_MAX_RESULTS`, each `content` ≤ `SEARCH_SNIPPET_CHARS`) or
+  `{ available: false, message }`. Never throws, never rejects.
+- **`append_doc` tool:** `{ text: string }`, appends one paragraph at the end
+  of the document through `typeIntoNewParagraph()`. Result
+  `{ ok: true }` or `{ ok: false, error }`.
+- **`.env.example`** gains `TAVILY_API_KEY=` with a comment: free tier from
+  tavily.com, server-side only, optional.
+
+---
+
+## 35. Momina — Config and the searching state
+
+- [ ] 35.1 Add the `TAVILY_URL`, `SEARCH_*` and `SEARCH_ACK` constants to `src/config.js` as pinned, each with a one-line comment naming its design decision; add `TAVILY_API_KEY=` to `.env.example`; push ahead of the rest of Track A
+- [ ] 35.2 Show a "searching" state in the UI while a search is in flight, distinct from "speaking" and from "typing an edit", and clear it when the turn ends or is cancelled
+- [ ] 35.3 Make sure a URL written into the document renders readably in the editor (plain text is fine — do not add link parsing, just confirm nothing mangles it)
+- [ ] 35.4 Polish carry-over: type by hand in one tab while the agent appends a paragraph in another; no corruption, no lost characters (closes Milestone D's 34.7 for the append path too)
+
+## 36. Momina — Gate A (verifiable without a Tavily key or Rumaisa's work)
+
+Uses the same throwaway awareness publisher and mock HTTP server as Milestone D's Gate A.
+
+- [ ] 36.1 A scripted acknowledgement reply ("Let me look that up.") is spoken, and the searching state appears while a scripted turn is in flight
+- [ ] 36.2 A scripted appended paragraph containing a URL renders correctly in both tabs, with the URL intact
+- [ ] 36.3 Pressing push-to-talk during the searching state clears it and stops the voice, exactly as it does mid-edit
+- [ ] 36.4 With no Tavily key configured anywhere, the page behaves exactly as it does after Milestone D — nothing new breaks
+
+## 37. Rumaisa — Tavily client and tool consolidation
+
+- [ ] 37.1 Replace the stub in `src/agent/search-web.js` with a real Tavily call per the pinned signature: `POST TAVILY_URL`, `Authorization: Bearer <TAVILY_API_KEY>`, body `{ query, max_results: SEARCH_MAX_RESULTS, search_depth: 'basic', include_answer: false }`, `SEARCH_TIMEOUT_MS` timeout, `opts.signal` honoured (design D33)
+- [ ] 37.2 Shape results to `{ title, url, content }`, truncating `content` at the last word boundary before `SEARCH_SNIPPET_CHARS` with a trailing `…` (design D37)
+- [ ] 37.3 Return `{ available: false, message }` for: no key, `429`/`432`/`433`, any other HTTP error, a timeout, an aborted signal, or a malformed body — never throw (design D38)
+- [ ] 37.4 Delete the duplicate `search_web` schema in `llm-client.js` and the inline stub response in `orchestrator.js`; both now import from `search-web.js` (design D34). Grep for `search_web` afterwards and confirm exactly one schema and one handler exist
+- [ ] 37.5 Log one startup warning when `TAVILY_API_KEY` is unset, naming the variable, and never log the key or a full search response body
+
+## 38. Rumaisa — `append_doc`, the search flow and sourcing
+
+- [ ] 38.1 Add `appendDoc(doc, text, opts)` to `src/agent/doc-client.js` using `typeIntoNewParagraph()`, honouring `opts.isCancelled`, and register the `append_doc` tool schema (design D36)
+- [ ] 38.2 Dispatch `append_doc` in the orchestrator like `edit_doc`, counting it as a document change so the turn can end successfully
+- [ ] 38.3 Publish `SEARCH_ACK` when a `search_web` call is dispatched and nothing has been published for this turn yet, so the acknowledgement always precedes the search (design D35)
+- [ ] 38.4 Cap searches at `SEARCH_MAX_PER_TURN`; a further call returns `{ available: false, message: 'Search limit reached for this turn.' }` (design D37)
+- [ ] 38.5 Pass the turn's `AbortSignal` into `searchWeb()` so a barge-in drops an in-flight search (design D28, D33)
+- [ ] 38.6 System prompt: state the sourcing rule (any fact written from a search carries a URL from that search's results, never an invented one), the split between `edit_doc` (replace existing text) and `append_doc` (add something new), and that the spoken reply is one sentence while the written text is the fuller version
+
+## 39. Rumaisa — Gate B (verifiable without any of Momina's Milestone E work)
+
+Real Groq and real Tavily, `curl` and the agent log. No browser.
+
+- [ ] 39.1 `searchWeb({ query: 'current population of Tokyo' })` returns `available: true`, at most 3 results, each with a non-empty `title`, a `url`, and `content` no longer than 500 characters ending on a word boundary
+- [ ] 39.2 Record whether `basic` depth gives enough text for a one-sentence finding, or whether `chunks_per_source: 3` is needed (design open question)
+- [ ] 39.3 With `TAVILY_API_KEY` unset: the startup warning appears, `searchWeb()` returns `{ available: false }`, and a factual instruction still ends with the agent saying it cannot check — the Milestone D behaviour, unchanged
+- [ ] 39.4 A factual instruction end to end: the acknowledgement is published **before** the Tavily request goes out (prove it with timestamps in the agent log), and the turn ends with a paragraph appended
+- [ ] 39.5 The appended paragraph contains a URL that appears in the tool result — read both back and compare, not by eye (design D36's sourcing rule). Record whether the model chose `append_doc` over `edit_doc` (design open question)
+- [ ] 39.6 An ordinary edit instruction still edits and still reports `Done` — the regression `append_doc` could plausibly cause
+- [ ] 39.7 `POST /cancel` during a search aborts it: no paragraph appears, `lastResult` is `cancelled`, and the agent log shows no unhandled rejection
+- [ ] 39.8 A forced failure (bad key, or `SEARCH_MAX_PER_TURN` exceeded) leaves the document untouched and produces a spoken "couldn't check" reply rather than a failed turn
+
+## 40. Joint — Milestone E acceptance (demo beat three)
+
+Relay, web and agent running with all three keys; **speakers, not headphones**.
+
+- [ ] 40.1 Speak "find the current population of Tokyo and add it with a source": the acknowledgement is spoken **within 1 s**, and the finding is written into the document **within 10 s** (brief's budget — record both numbers)
+- [ ] 40.2 The spoken finding is one sentence; the written paragraph is the fuller version and carries a source URL
+- [ ] 40.3 The written URL is one of the URLs Tavily actually returned (check the agent log), not an invented one
+- [ ] 40.4 Both tabs see the appended paragraph stream in; only the instructing tab speaks
+- [ ] 40.5 Interrupt during the search: the voice stops, no paragraph is appended, and the next instruction is handled fresh
+- [ ] 40.6 Type by hand while the agent appends: no corruption, no lost characters
+- [ ] 40.7 With `TAVILY_API_KEY` removed, the same question ends with "I can't check that yet" and no unsourced fact in the document
+- [ ] 40.8 README updated: the Tavily key, what search costs, and that findings are written with sources
 
 ---
 

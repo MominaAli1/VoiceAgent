@@ -297,3 +297,76 @@ real Tavily search.
   before the tool runs" path — the brief's "the agent speaks its
   acknowledgement before the search runs, so there is no silence while it
   waits" is exactly the mechanism built here.
+
+# Milestone E — Search Out Loud
+
+## Why
+
+The brief's plan: "Days 12-13 - Search out loud and polish." It is also beat
+three of the 90-second demo: *"Find the current figure for X and add it."* →
+*"Let me check that,"* then the agent speaks the finding while writing it in.
+
+Everything that beat needs is already built except the search itself:
+Milestone B gave the agent a `search_web` tool it can call, and Milestone D
+gave it a voice that can acknowledge before a tool runs. This change replaces
+the placeholder handler with a real **Tavily** call, and makes what comes back
+land in the document with a source attached.
+
+The gate is the brief's: **a factual question gets an acknowledgement within a
+second and the finding written in, with its source, within ten.**
+
+## What Changes
+
+- **Tavily-backed `search_web`** (`src/agent/search-web.js`). A plain `fetch`
+  to Tavily's search endpoint: at most 3 results, each trimmed to ~500
+  characters, each carrying its title and source URL. No SDK.
+- **One definition of each tool, not three.** Today `search_web`'s schema
+  exists in `search-web.js` *and* `llm-client.js`, its behaviour lives in
+  `orchestrator.js`, and `search-web.js` is imported by nothing — so editing
+  the file named after the feature changes nothing. This change makes
+  `search-web.js` the only definition and has the other two import it.
+- **An acknowledgement that is guaranteed, not hoped for.** The orchestrator
+  already publishes the model's own words before running a tool (D29). When a
+  search call arrives with no words attached, it publishes a fixed line ("Let
+  me look that up.") instead, so the brief's "speaks before the search runs"
+  holds even when the model says nothing.
+- **A way to add a paragraph.** `edit_doc` can only replace existing text, so
+  the agent currently cannot write a finding into a document that does not
+  already contain something to replace. A new `append_doc` tool appends a
+  paragraph through the same throttled, cancellable typing path.
+- **Sourcing rules.** Anything written from a search must carry a URL that
+  came back from that search. The system prompt states it; the tool result
+  carries the URLs; the acceptance checks look for them.
+- **Polish.** The brief's "test typing while the agent writes" and the
+  concurrent-edit checks that Milestone D left open.
+
+Explicitly out of scope: ElevenLabs, a fixture-reset key, the demo recording
+(all Milestone F), always-on listening, and retrieval over long documents.
+
+## Capabilities
+
+### New Capabilities
+
+- `web-search`: the search tool's contract, what it returns, the spoken
+  acknowledgement that precedes it, and the rule that written facts carry
+  their source.
+
+### Modified Capabilities
+
+- `agent-brain`: gains `append_doc`, and `search_web` stops being a stub.
+
+## Impact
+
+- **New dependencies:** none. Tavily is one `fetch`.
+- **New configuration:** `TAVILY_API_KEY` (secret, `.env`, optional),
+  `TAVILY_URL`, `SEARCH_MAX_RESULTS`, `SEARCH_SNIPPET_CHARS`,
+  `SEARCH_TIMEOUT_MS`, `SEARCH_MAX_PER_TURN`, `SEARCH_ACK` in `src/config.js`.
+- **New code:** a real handler in `src/agent/search-web.js`; `append_doc` in
+  `src/agent/doc-client.js` and the tool schema; search flow in
+  `src/agent/orchestrator.js`; a "searching" state in the browser.
+- **Existing code affected:** `src/agent/llm-client.js` (imports the shared
+  schemas, prompt gains the sourcing rule), `src/agent/orchestrator.js`,
+  `src/web/main.js` and `editor.css`, `.env.example`, README.
+- **Cost:** Tavily's free tier is 1,000 credits a month; a basic search is 1
+  credit. Rehearsal will use tens, not hundreds.
+- **Downstream:** Milestone F rehearses this as demo beat three.

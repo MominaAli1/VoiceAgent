@@ -912,3 +912,147 @@ voice; `POST /cancel` is new; the `from` field is optional. Rollback is
   message? Decides whether the agent can speak before it edits (Gate B, 33.2).
 - Is one sentence per utterance the right split for the machine voice, or does
   it sound clipped? Rehearsal question, settled by listening (36.x).
+
+# Milestone E — Search Out Loud
+
+## Context
+
+Builds on Milestones A-D. Reuses the tool-dispatch loop (D14), the reply
+channel (D27), "speak before the tool runs" (D29), cancellation (D28/D30) and
+throttled insertion (D17) without changing any of them. D-numbering continues
+from D32.
+
+Tavily facts below come from its search API reference at the time of writing:
+`POST https://api.tavily.com/search`, `Authorization: Bearer tvly-...`, body
+fields `query`, `max_results` (0-20, default 10), `search_depth`
+(`basic`/`advanced`/`fast`/`ultra-fast`), `include_answer`,
+`include_raw_content`, `chunks_per_source`, `topic`, `time_range`. Each result
+carries `title`, `url`, `content`, `score`, `published_date`. A basic search
+costs 1 credit; `advanced` costs 2. Throttling and plan limits surface as
+`429`/`432`/`433`.
+
+### D33 — Tavily over a plain `fetch`, with `basic` depth and 3 results
+
+No SDK (the standing no-new-dependencies rule). The request is:
+
+```
+POST https://api.tavily.com/search
+Authorization: Bearer <TAVILY_API_KEY>
+{ query, max_results: SEARCH_MAX_RESULTS (3), search_depth: 'basic',
+  include_answer: false, include_raw_content: false }
+```
+
+- **`basic`, not `advanced`:** 1 credit instead of 2, and the brief's budget is
+  ten seconds for the whole beat.
+- **`include_answer: false`:** the agent's job is to read the sources and write
+  the finding in its own words, with attribution. A pre-written answer with no
+  URL attached is exactly what the sourcing rule (D36) is there to prevent.
+- **`AbortSignal`** from the current turn, plus a `SEARCH_TIMEOUT_MS` (10 s)
+  timeout, so a barge-in or a hung search cannot strand a turn.
+
+### D34 — One definition per tool; `search-web.js` becomes the only source of truth
+
+Today `search_web` is defined three times: a schema in `search-web.js`
+(imported by nothing), a second schema in `llm-client.js` (the one actually
+registered with Groq), and the stub response inline in `orchestrator.js` (the
+one actually returned). Wiring Tavily into the file named `search-web.js`
+would have changed nothing that runs — a trap worth removing before adding
+behaviour.
+
+After this change: `search-web.js` exports `SEARCH_WEB_SCHEMA` and
+`searchWeb()`; `llm-client.js` imports the schema into `TOOLS`;
+`orchestrator.js` imports and calls the handler. No second copy anywhere.
+
+### D35 — The acknowledgement is guaranteed, not left to the model
+
+The brief: "The agent speaks its acknowledgement before the search runs, so
+there is no silence while it waits." D29 already publishes the model's own
+`content` before dispatching a tool — but only if the model wrote any, which
+Milestone D left as an open question.
+
+Rule: when a `search_web` call is dispatched and nothing has been published
+for this turn yet, the orchestrator publishes `SEARCH_ACK` ("Let me look that
+up.") itself. The model's own words win when present; the canned line is the
+floor, not the default.
+
+### D36 — Findings are written with their source, through `append_doc`
+
+`edit_doc` replaces existing text, so with the demo's fixture document the
+agent has nothing to replace when asked to *add* a figure. Adding a paragraph
+is a genuinely different operation, so it gets its own tool rather than an
+overloaded `edit_doc`:
+
+```
+append_doc({ text })  → appends one paragraph at the end of the document
+```
+
+It goes through `typeIntoNewParagraph()`, so it is throttled and cancellable
+exactly like an edit (D17, D30).
+
+**Sourcing rule.** Any fact written from a search must carry a URL that
+appeared in that search's results. The tool result hands the model
+`{ title, url, content }` per result; the system prompt states the rule; and
+the model is told to write the fuller version into the document (with the
+URL) while speaking a one-sentence version. The brief's own framing: the agent
+"speaks the finding in one sentence and writes the fuller version plus source
+into the doc".
+
+This is a prompt-level rule, not an enforced one. A model that invents a URL
+would pass silently; acceptance check 40.4 reads the written URL back and
+confirms it appears in the tool result, so at least the demo path is verified.
+
+### D37 — Result shaping: 3 results, ~500 characters each, at a word boundary
+
+`SEARCH_MAX_RESULTS` = 3 and `SEARCH_SNIPPET_CHARS` = 500 come from the brief.
+Truncation cuts at the last word boundary before the limit and appends `…`, so
+the model is never handed a half-word. Results are passed through in Tavily's
+order (its relevance order); no re-ranking.
+
+`SEARCH_MAX_PER_TURN` = 2 caps searches per turn. The 3-attempt cap (D14)
+already bounds the loop, but a model that searches, dislikes the result, and
+searches again would otherwise spend the whole turn searching and never write
+anything.
+
+### D38 — A missing or failing search degrades to Milestone D's behaviour
+
+`TAVILY_API_KEY` is optional, like `ASSEMBLYAI_API_KEY` and unlike
+`GROQ_API_KEY`:
+
+- **Unset:** one startup warning, and `searchWeb()` returns
+  `{ available: false, message: 'Web search is not configured.' }` — the same
+  shape Milestone B's stub returned, so the agent says it cannot check, exactly
+  as it does today.
+- **HTTP error, throttling (`429`/`432`/`433`), timeout or a malformed body:**
+  the same shape with a message naming the cause. The turn continues; the
+  agent says it could not search; the document is not touched.
+
+A search failure must never fail the turn, and must never produce an
+unsourced fact — "no answer" is always better than an invented one.
+
+## Risks / Trade-offs
+
+- **The sourcing rule is a prompt, not an enforcement.** A model can still
+  write a URL it made up. Checked in acceptance, not prevented in code.
+- **`append_doc` gives the model a second way to change the document,** and a
+  weak model may append when it should have edited. The system prompt states
+  the split (replace existing text → `edit_doc`; add something new →
+  `append_doc`), and Gate B checks both.
+- **Ten seconds is the budget, and Tavily plus two Groq turns is most of it.**
+  If the beat runs long, the first lever is `search_depth: 'fast'`, then
+  reducing `SEARCH_MAX_RESULTS` to 2.
+- **Free-tier credits are shared across rehearsals.** 1,000 a month is ample,
+  but a retry loop during testing is the way to burn them; `SEARCH_MAX_PER_TURN`
+  is the guard.
+
+## Migration Plan
+
+Additive. Without `TAVILY_API_KEY` the system behaves exactly as it does after
+Milestone D. Rollback is `git revert`.
+
+## Open Questions
+
+- Does `basic` depth return enough text for a one-sentence spoken finding, or
+  does the model need `chunks_per_source: 3`? Measured in Gate B (39.2).
+- Does the model reliably choose `append_doc` over `edit_doc` when asked to
+  *add* a figure? Measured in Gate B (39.5); if not, the fallback is to fold
+  appending into `edit_doc` with an explicit "append" mode.
