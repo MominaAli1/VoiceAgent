@@ -297,3 +297,143 @@ real Tavily search.
   before the tool runs" path — the brief's "the agent speaks its
   acknowledgement before the search runs, so there is no silence while it
   waits" is exactly the mechanism built here.
+
+# Milestone E — Search Out Loud
+
+## Why
+
+The brief's plan: "Days 12-13 - Search out loud and polish." It is also beat
+three of the 90-second demo: *"Find the current figure for X and add it."* →
+*"Let me check that,"* then the agent speaks the finding while writing it in.
+
+Everything that beat needs is already built except the search itself:
+Milestone B gave the agent a `search_web` tool it can call, and Milestone D
+gave it a voice that can acknowledge before a tool runs. This change replaces
+the placeholder handler with a real **Tavily** call, and makes what comes back
+land in the document with a source attached.
+
+The gate is the brief's: **a factual question gets an acknowledgement within a
+second and the finding written in, with its source, within ten.**
+
+## What Changes
+
+- **Tavily-backed `search_web`** (`src/agent/search-web.js`). A plain `fetch`
+  to Tavily's search endpoint: at most 3 results, each trimmed to ~500
+  characters, each carrying its title and source URL. No SDK.
+- **One definition of each tool, not three.** Today `search_web`'s schema
+  exists in `search-web.js` *and* `llm-client.js`, its behaviour lives in
+  `orchestrator.js`, and `search-web.js` is imported by nothing — so editing
+  the file named after the feature changes nothing. This change makes
+  `search-web.js` the only definition and has the other two import it.
+- **An acknowledgement that is guaranteed, not hoped for.** The orchestrator
+  already publishes the model's own words before running a tool (D29). When a
+  search call arrives with no words attached, it publishes a fixed line ("Let
+  me look that up.") instead, so the brief's "speaks before the search runs"
+  holds even when the model says nothing.
+- **A way to add a paragraph.** `edit_doc` can only replace existing text, so
+  the agent currently cannot write a finding into a document that does not
+  already contain something to replace. A new `append_doc` tool appends a
+  paragraph through the same throttled, cancellable typing path.
+- **Sourcing rules.** Anything written from a search must carry a URL that
+  came back from that search. The system prompt states it; the tool result
+  carries the URLs; the acceptance checks look for them.
+- **Polish.** The brief's "test typing while the agent writes" and the
+  concurrent-edit checks that Milestone D left open.
+
+Explicitly out of scope: ElevenLabs, a fixture-reset key, the demo recording
+(all Milestone F), always-on listening, and retrieval over long documents.
+
+## Capabilities
+
+### New Capabilities
+
+- `web-search`: the search tool's contract, what it returns, the spoken
+  acknowledgement that precedes it, and the rule that written facts carry
+  their source.
+
+### Modified Capabilities
+
+- `agent-brain`: gains `append_doc`, and `search_web` stops being a stub.
+
+## Impact
+
+- **New dependencies:** none. Tavily is one `fetch`.
+- **New configuration:** `TAVILY_API_KEY` (secret, `.env`, optional),
+  `TAVILY_URL`, `SEARCH_MAX_RESULTS`, `SEARCH_SNIPPET_CHARS`,
+  `SEARCH_TIMEOUT_MS`, `SEARCH_MAX_PER_TURN`, `SEARCH_ACK` in `src/config.js`.
+- **New code:** a real handler in `src/agent/search-web.js`; `append_doc` in
+  `src/agent/doc-client.js` and the tool schema; search flow in
+  `src/agent/orchestrator.js`; a "searching" state in the browser.
+- **Existing code affected:** `src/agent/llm-client.js` (imports the shared
+  schemas, prompt gains the sourcing rule), `src/agent/orchestrator.js`,
+  `src/web/main.js` and `editor.css`, `.env.example`, README.
+- **Cost:** Tavily's free tier is 1,000 credits a month; a basic search is 1
+  credit. Rehearsal will use tens, not hundreds.
+- **Downstream:** Milestone F rehearses this as demo beat three.
+
+# Milestone F — Live Deployment
+
+## Why
+
+The submission is a complete project with a **live URL judges can open and
+test**, so the app has to leave `localhost`. Nothing in the system is built
+for that yet: the relay, the agent and the allowed page origin are hard-wired
+to `localhost`, the microphone will not work off `https`, every visitor lands
+in the *same* document as the demo, and any visitor spends the team's Groq,
+AssemblyAI and Tavily credit.
+
+This milestone is scheduled **in parallel with Milestone E, not after it**.
+With the deadline close, an unknown found on the first deploy is far more
+expensive than one found on the last day.
+
+## What Changes
+
+- **Addresses become configuration.** `src/config.js` keeps being the single
+  source of truth, but reads the relay URL, the agent's base URL and the
+  allowed page origin from the environment, falling back to today's localhost
+  values so local development is unchanged.
+- **A room per visitor.** The room name comes from the page URL
+  (`?room=<id>`), generated on first visit if absent. The agent no longer
+  joins one fixed room at startup: it joins a visitor's room on demand, keeps
+  one connection, turn state and conversation history **per room**, and drops
+  a room's connection after an idle period.
+- **Three services on Render:** the built editor page as a static site, the
+  stock y-websocket relay, and the agent. Both Node services bind Render's
+  `PORT`.
+- **Rate limits on the agent's routes,** because every visitor spends the
+  team's credit: per-IP limits on `/stt-token` and `/instruction`, plus a
+  daily ceiling, returning `429` with a message the page shows.
+- **A fixture document per room,** seeded by the agent when it joins an empty
+  room, so a judge landing on a fresh URL sees something to edit rather than a
+  blank page — and so a relay restart, which wipes memory, is survivable.
+
+Explicitly out of scope: persistence beyond the relay's memory, accounts or
+login, a custom domain, the PWA, and any paid hosting tier.
+
+## Capabilities
+
+### New Capabilities
+
+- `deployment`: what the live service must do — reachable over `https`/`wss`,
+  a private document per visitor, the team's credentials never reaching the
+  browser, and spending bounded per visitor.
+
+### Modified Capabilities
+
+- `collaborative-document`: the room is per visitor rather than one constant.
+- `agent-brain`: turn state and conversation history are per room.
+
+## Impact
+
+- **New dependencies:** none. Rate limiting is a small in-memory counter; no
+  framework.
+- **New configuration:** `WS_URL`, `AGENT_URL` and `CORS_ORIGIN` from the
+  environment (with localhost defaults); `PORT` on both Node services;
+  `RATE_LIMIT_*`; the three API keys as Render environment variables.
+- **New code:** per-room connection/turn/history handling in the agent, room
+  selection in the browser, a rate limiter, a fixture seed, and Render service
+  definitions.
+- **Risk this carries:** free Render services sleep when idle and take
+  ~30-60 s to wake. The demo plan must include waking them beforehand.
+- **Downstream:** Milestone G (rehearsal) rehearses against the live URL, not
+  `localhost`.
