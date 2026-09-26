@@ -18,6 +18,7 @@ import http from 'node:http';
 import { readDoc } from './doc-client.js';
 import { getConnection, handleInstruction, cancelCurrentTurn, nextTurnId } from './orchestrator.js';
 import { fetchStreamingToken, hasAssemblyAiKey, MissingAssemblyAiKeyError, AssemblyAiTokenError } from './stt-token.js';
+import { hasTavilyKey } from './search-web.js';
 import {
   ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH,
   STT_TOKEN_PATH, CANCEL_PATH,
@@ -36,6 +37,16 @@ if (!hasAssemblyAiKey()) {
   console.warn(
     'WARNING: ASSEMBLYAI_API_KEY is not set. Push-to-talk will show an error; ' +
       `typed instructions on ${INSTRUCTION_PATH} are unaffected.`,
+  );
+}
+
+// Design D38: same treatment as ASSEMBLYAI_API_KEY — loud but non-fatal.
+// search_web degrades to { available: false } and the agent says it cannot
+// check; everything else keeps working.
+if (!hasTavilyKey()) {
+  console.warn(
+    'WARNING: TAVILY_API_KEY is not set. search_web will report it cannot check; ' +
+      'everything else is unaffected.',
   );
 }
 

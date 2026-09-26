@@ -1,14 +1,15 @@
 /**
  * Groq chat-completions client for the orchestrator.
  *
- * Wraps `groq-sdk`, registers the two tool schemas the orchestrator can
- * dispatch (`edit_doc` and `search_web`), and surfaces a rate-limit
- * response as its own distinct error type rather than folding it into the
- * generic tool-call-failure retry path (design D14).
+ * Wraps `groq-sdk`, registers the three tool schemas the orchestrator can
+ * dispatch (`edit_doc`, `append_doc` and `search_web`), and surfaces a
+ * rate-limit response as its own distinct error type rather than folding it
+ * into the generic tool-call-failure retry path (design D14).
  */
 
 import Groq from 'groq-sdk';
 import { GROQ_MODEL } from '../config.js';
+import { SEARCH_WEB_SCHEMA } from './search-web.js';
 
 /**
  * Thrown at import/startup time if GROQ_API_KEY is unset. A missing key
@@ -74,55 +75,69 @@ export const EDIT_DOC_TOOL = {
 };
 
 /**
- * `search_web` tool schema. Pinned by Momina's Milestone B contract (task
- * 12.1) and registered verbatim here so the tool-dispatch loop does not
- * break on a valid call — name, the single required `query` parameter, and
- * the "not yet backed by a real search" description must match her stub
- * exactly.
+ * `append_doc` tool schema, pinned by the shared contract (design D36):
+ * name `append_doc`, one required string parameter `text`. Appends a new
+ * paragraph rather than replacing existing text — `edit_doc` cannot add
+ * something to a document that has nothing matching to replace.
  */
-export const SEARCH_WEB_TOOL = {
+export const APPEND_DOC_TOOL = {
   type: 'function',
   function: {
-    name: 'search_web',
-    description: 'Search the web for information. Not yet backed by a real search.',
+    name: 'append_doc',
+    description:
+      'Append a new paragraph to the end of the document. Use this to add ' +
+      'something new (e.g. a finding from search_web) — use edit_doc instead ' +
+      'when replacing text that already exists in the document.',
     parameters: {
       type: 'object',
       properties: {
-        query: {
+        text: {
           type: 'string',
-          description: 'The search query.',
+          description: 'The paragraph text to append.',
         },
       },
-      required: ['query'],
+      required: ['text'],
     },
   },
 };
 
-export const TOOLS = [EDIT_DOC_TOOL, SEARCH_WEB_TOOL];
+/**
+ * `search_web`'s schema lives in `search-web.js` — the single source of
+ * truth for both its schema and its handler (design D34). Imported here,
+ * not redefined, so there is exactly one definition in the codebase.
+ */
+export const TOOLS = [EDIT_DOC_TOOL, APPEND_DOC_TOOL, SEARCH_WEB_SCHEMA];
 
 export const SYSTEM_PROMPT =
   'You are a document-editing assistant. The document text you are shown is ' +
-  'authoritative and reflects the live state at the start of this turn. ' +
-  'When you call edit_doc, the `find` argument must match the document ' +
-  'exactly, verbatim, character for character, including punctuation and ' +
-  'capitalization — do not paraphrase or summarize the text you are trying ' +
-  'to match. If you are not making an edit, you must still respond, but no ' +
-  'document change will occur unless you call edit_doc.\n\n' +
+  'authoritative and reflects the live state at the start of this turn.\n\n' +
+  'You have two ways to change the document, and they are not ' +
+  'interchangeable. Use edit_doc to replace text that already exists: the ' +
+  '`find` argument must match the document exactly, verbatim, character for ' +
+  'character, including punctuation and capitalization — do not paraphrase ' +
+  'or summarize the text you are trying to match. Use append_doc to add ' +
+  'something new to the end of the document — a finding from search_web, ' +
+  'for instance — when there is no existing text to replace. If you are not ' +
+  'making a change, you must still respond, but no document change will ' +
+  'occur unless you call edit_doc or append_doc.\n\n' +
   'If the instruction asks you to add, verify, or rely on a specific fact, ' +
   'statistic, date, price, score, or other real-world/current information ' +
   'that is not already present verbatim in the document, you must call ' +
-  'search_web with an appropriate query before calling edit_doc — never ' +
-  'answer a factual question from your own memory. search_web is not yet ' +
-  'backed by a real search and will report `{ available: false }`; when it ' +
-  'does, do not guess, estimate, or invent the fact and do not call ' +
-  'edit_doc with a fabricated value. Instead respond in plain text saying ' +
-  'you cannot verify that information yet because web search is not ' +
-  'available, and make no document change.\n\n' +
+  'search_web with an appropriate query first — never answer a factual ' +
+  'question from your own memory. Any fact you write into the document from ' +
+  'a search result must carry that result\'s URL as its source, appended ' +
+  'inline with append_doc — never invent a URL and never write a fact with ' +
+  'no source. If search_web reports `{ available: false }`, do not guess, ' +
+  'estimate, or invent the fact and do not call edit_doc or append_doc with ' +
+  'a fabricated value; instead respond in plain text saying you cannot ' +
+  'verify that information right now, and make no document change.\n\n' +
   'When you respond, include a short spoken sentence in your content field ' +
-  '— what you are about to do (e.g. "Let me update that for you.") or the ' +
-  'answer to a factual question. This sentence will be spoken aloud to the ' +
-  'user. Keep it to one short sentence. Always still call the appropriate ' +
-  'tool when the instruction implies a document change.';
+  '— what you are about to do (e.g. "Let me check that for you.") or the ' +
+  'answer to a factual question. This sentence is read aloud, so keep it to ' +
+  'one short, natural spoken sentence; if you are writing a finding into the ' +
+  'document, the written paragraph is the fuller version — the source URL ' +
+  'belongs in what you write, not in what you say. Always still call the ' +
+  'appropriate tool when the instruction implies a document change.';
 
 /**
  * Send a chat-completion request to Groq with the pinned tool schemas
