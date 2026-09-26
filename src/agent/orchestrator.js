@@ -10,20 +10,16 @@
  * via AbortController, and reply publishing on awareness.
  */
 
-import { connect, readDoc, editDoc } from './doc-client.js';
+import { connect, readDoc, editDoc, appendDoc } from './doc-client.js';
 import { chat, SYSTEM_PROMPT, RateLimitError } from './llm-client.js';
+import { searchWeb } from './search-web.js';
+import { SEARCH_ACK, SEARCH_MAX_PER_TURN } from '../config.js';
 
 /** Retry cap per instruction, shared across all failure modes (design D14). */
 const MAX_ATTEMPTS = 3;
 
 /** Document cap sent to the model, in words (design D18). */
 const MAX_WORDS = 2000;
-
-/** search_web stub response, pinned by the shared contract. */
-const SEARCH_WEB_STUB_RESPONSE = {
-  available: false,
-  message: 'Web search is not available yet.',
-};
 
 // In-memory conversation history for the life of the process.
 const history = [];
@@ -114,7 +110,10 @@ function buildUserMessage(instruction, docText) {
  * Execute a single tool call and return its JSON-serializable result.
  * @param {import('yjs').Doc} doc
  * @param {{ name: string, arguments: string }} fn
- * @param {{ isCancelled?: () => boolean }} [opts]
+ * @param {{ isCancelled?: () => boolean, signal?: AbortSignal }} [opts]
+ *   `isCancelled` threads into `edit_doc`/`append_doc`'s throttled insertion
+ *   (design D30); `signal` is the turn's `AbortSignal`, passed to
+ *   `search_web` so a barge-in drops an in-flight search (design D28/D33).
  * @returns {Promise<{ result: any, editedDocument: boolean }>}
  */
 async function dispatchTool(doc, fn, opts = {}) {
@@ -132,8 +131,16 @@ async function dispatchTool(doc, fn, opts = {}) {
     return { result, editedDocument: Boolean(result.ok) };
   }
 
+  if (fn.name === 'append_doc') {
+    const result = await appendDoc(doc, args.text, {
+      isCancelled: opts.isCancelled,
+    });
+    return { result, editedDocument: Boolean(result.ok) };
+  }
+
   if (fn.name === 'search_web') {
-    return { result: SEARCH_WEB_STUB_RESPONSE, editedDocument: false };
+    const result = await searchWeb(args, { signal: opts.signal });
+    return { result, editedDocument: false };
   }
 
   return { result: { ok: false, error: `unknown tool: ${fn.name}` }, editedDocument: false };
@@ -175,6 +182,7 @@ export async function handleInstruction(text, opts = {}) {
    * @param {boolean} finalReply
    */
   function publishReply(replyText, finalReply) {
+    publishedThisTurn = true;
     if (provider && from != null) {
       provider.awareness.setLocalStateField('reply', {
         to: from,
@@ -206,6 +214,12 @@ export async function handleInstruction(text, opts = {}) {
 
     let documentChanged = false;
     let lastToolError = null;
+    // Design D35/task 38.3: the guaranteed search acknowledgement only fires
+    // if nothing — not the model's own words, not an earlier ack — has been
+    // published yet this turn. Design D37/task 38.4: search_web is capped
+    // per turn, across all attempts, not just within one.
+    let publishedThisTurn = false;
+    let searchCallCount = 0;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       // Check if cancelled before each attempt.
@@ -262,7 +276,7 @@ export async function handleInstruction(text, opts = {}) {
         history.push({
           role: 'user',
           content:
-            'You must call a tool (edit_doc or search_web) to make progress on this instruction. ' +
+            'You must call a tool (edit_doc, append_doc or search_web) to make progress on this instruction. ' +
             'Respond only with a tool call, not plain text.',
         });
         continue;
@@ -283,8 +297,31 @@ export async function handleInstruction(text, opts = {}) {
           return { ok: false, error: 'cancelled', turnId };
         }
 
+        if (toolCall.function.name === 'search_web') {
+          // Guaranteed acknowledgement (design D35): the model's own words
+          // (published above, if any) win; this is the floor, not the
+          // default.
+          if (!publishedThisTurn) {
+            publishReply(SEARCH_ACK, false);
+          }
+
+          // Per-turn search cap (design D37) — checked before the request
+          // goes out, not after, so a capped call costs no latency and no
+          // Tavily credit.
+          if (searchCallCount >= SEARCH_MAX_PER_TURN) {
+            history.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({ available: false, message: 'Search limit reached for this turn.' }),
+            });
+            continue;
+          }
+          searchCallCount += 1;
+        }
+
         const { result, editedDocument } = await dispatchTool(doc, toolCall.function, {
           isCancelled: () => currentTurn.cancelled,
+          signal: abort.signal,
         });
         if (editedDocument) documentChanged = true;
         if (!editedDocument && result && result.ok === false) lastToolError = result.error;

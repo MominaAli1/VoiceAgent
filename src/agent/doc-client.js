@@ -9,7 +9,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { WebSocket } from 'ws';
 import { ROOM, WS_URL, FIELD } from '../config.js';
-import { typeIntoParagraph } from './typing.js';
+import { typeIntoParagraph, typeIntoNewParagraph } from './typing.js';
 import { ASSISTANT_COLOR } from '../palette.js';
 
 /**
@@ -55,6 +55,30 @@ export function appendText(doc, text) {
   const textNode = new Y.XmlText(text);
   paragraph.insert(0, [textNode]);
   fragment.insert(fragment.length, [paragraph]);
+}
+
+/**
+ * Append a new paragraph at the end of the document, streaming its text in
+ * via `typeIntoNewParagraph` — throttled and cancellable exactly like
+ * `editDoc`'s replacement text (design D17, D30, D36). Unlike `appendText`
+ * above (an instant, un-throttled write used only by the seed harness),
+ * this is the `append_doc` tool's handler: it goes through the same chunked
+ * insertion path an edit does, so a barge-in during an append stops within
+ * one chunk exactly as it would mid-edit.
+ *
+ * @param {Y.Doc} doc
+ * @param {string} text - Paragraph text to append
+ * @param {{ chunkSize?: number, delayMs?: number, isCancelled?: () => boolean }} [opts]
+ * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
+ */
+export async function appendDoc(doc, text, opts = {}) {
+  if (typeof text !== 'string' || !text.trim()) {
+    return { ok: false, error: 'append_doc text was empty' };
+  }
+
+  await typeIntoNewParagraph(doc, text, opts);
+
+  return { ok: true };
 }
 
 /**
