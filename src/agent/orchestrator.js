@@ -78,7 +78,7 @@ export function activeRooms() {
  * that again") ran off the end mid-discussion. Cheap now that older turns no
  * longer carry a copy of the document (compactHistory).
  */
-const MAX_HISTORY_TURNS = 16;
+const MAX_HISTORY_TURNS = 10;
 
 /** Longest a turn waits for a new room's first sync before proceeding anyway. */
 const SYNC_WAIT_MS = 5000;
@@ -108,8 +108,8 @@ function compactHistory(history) {
       const i = message.content.indexOf('Instruction: ');
       if (i !== -1) message.content = message.content.slice(i);
     }
-    if (message.role === 'tool' && typeof message.content === 'string' && message.content.length > 300) {
-      message.content = `${message.content.slice(0, 300)}… (truncated)`;
+    if (message.role === 'tool' && typeof message.content === 'string' && message.content.length > 200) {
+      message.content = `${message.content.slice(0, 200)}… (truncated)`;
     }
   }
 }
@@ -363,8 +363,10 @@ export async function handleInstruction(text, opts = {}) {
         );
       } catch (err) {
         if (err instanceof RateLimitError) {
-          publishResult(false, 'rate_limited');
-          return { ok: false, error: 'rate_limited', message: err.message, turnId };
+          // Show the human-readable reason, not the error code: the user can
+          // act on "try again in 7s" and can do nothing with "rate_limited".
+          publishResult(false, err.message);
+          return { ok: false, error: err.message, turnId };
         }
         // Abort errors are cancellation, not failure (design D28).
         if (err.name === 'AbortError' || abort.signal.aborted) {
