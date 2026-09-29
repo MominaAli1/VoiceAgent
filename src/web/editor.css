@@ -251,3 +251,19 @@ main { padding: 40px 20px 25vh; }
   user-select: none;
   white-space: nowrap;
 }
+
+/* ---- room sharing (Milestone F) ---- */
+
+.copy-link {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+}
+.copy-link:hover { border-color: #0090ff; color: #0090ff; }
+.copy-link[data-copied='true'] { color: #30a46c; border-color: #30a46c; }

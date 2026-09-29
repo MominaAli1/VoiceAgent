@@ -13,12 +13,13 @@ import { typeIntoParagraph, typeIntoNewParagraph } from './typing.js';
 import { ASSISTANT_COLOR } from '../palette.js';
 
 /**
- * Connect to the document room.
+ * Connect to a document room.
+ * @param {string} [room] - defaults to the configured ROOM (local development)
  * @returns {{ doc: Y.Doc, provider: WebsocketProvider }}
  */
-export function connect() {
+export function connect(room = ROOM) {
   const doc = new Y.Doc();
-  const provider = new WebsocketProvider(WS_URL, ROOM, doc, {
+  const provider = new WebsocketProvider(WS_URL, room, doc, {
     // Supply ws implementation for Node
     WebSocket,
   });

@@ -13,7 +13,7 @@
 import { connect, readDoc, editDoc, appendDoc } from './doc-client.js';
 import { chat, SYSTEM_PROMPT, RateLimitError } from './llm-client.js';
 import { searchWeb } from './search-web.js';
-import { SEARCH_ACK, SEARCH_MAX_PER_TURN } from '../config.js';
+import { SEARCH_ACK, SEARCH_MAX_PER_TURN, ROOM, ROOM_IDLE_MS } from '../config.js';
 
 /** Retry cap per instruction, shared across all failure modes (design D14). */
 const MAX_ATTEMPTS = 3;
@@ -21,8 +21,55 @@ const MAX_ATTEMPTS = 3;
 /** Document cap sent to the model, in words (design D18). */
 const MAX_WORDS = 2000;
 
-// In-memory conversation history for the life of the process.
-const history = [];
+/**
+ * Per-room state (design D41, Milestone F).
+ *
+ * Before deployment the agent held one connection, one conversation history
+ * and one turn for the whole process, because everyone shared one room. A
+ * public URL gives each visitor their own room, so one visitor's instruction
+ * must never cancel another's or land in another's conversation.
+ *
+ * @type {Map<string, { connection: object, history: object[], currentTurn: object|null, idleTimer: any }>}
+ */
+const rooms = new Map();
+
+/**
+ * Get (or lazily create) the state for a room, and restart its idle timer.
+ * @param {string} [room]
+ */
+function getRoom(room = ROOM) {
+  let state = rooms.get(room);
+  if (!state) {
+    state = { connection: null, history: [], currentTurn: null, idleTimer: null };
+    rooms.set(room, state);
+  }
+  clearTimeout(state.idleTimer);
+  // Without this a public URL accumulates one live connection per visitor,
+  // forever (design D41).
+  state.idleTimer = setTimeout(() => dropRoom(room), ROOM_IDLE_MS);
+  return state;
+}
+
+/** Close a room's connection and forget its conversation. */
+function dropRoom(room) {
+  const state = rooms.get(room);
+  if (!state) return;
+  clearTimeout(state.idleTimer);
+  state.currentTurn?.abort.abort();
+  try {
+    state.connection?.provider.destroy();
+    state.connection?.doc.destroy();
+  } catch {
+    // Already gone; nothing to clean up.
+  }
+  rooms.delete(room);
+  console.log(`[room] dropped "${room}" after ${ROOM_IDLE_MS / 1000}s idle (${rooms.size} active)`);
+}
+
+/** Rooms currently held open, for diagnostics. */
+export function activeRooms() {
+  return [...rooms.keys()];
+}
 
 /**
  * Turns of history kept. Every turn resends the whole history plus the whole
@@ -30,6 +77,9 @@ const history = [];
  * measured Sep 29 as part of a search turn taking 8-11 s.
  */
 const MAX_HISTORY_TURNS = 6;
+
+/** Longest a turn waits for a new room's first sync before proceeding anyway. */
+const SYNC_WAIT_MS = 5000;
 
 /**
  * Drop the oldest turns, cutting only at a `user` message.
@@ -50,7 +100,7 @@ const MAX_HISTORY_TURNS = 6;
  * Only the current turn needs the live document; older turns just need to
  * record what was asked.
  */
-function compactHistory() {
+function compactHistory(history) {
   for (const message of history) {
     if (message.role === 'user' && typeof message.content === 'string') {
       const i = message.content.indexOf('Instruction: ');
@@ -62,7 +112,7 @@ function compactHistory() {
   }
 }
 
-function trimHistory() {
+function trimHistory(history) {
   const userTurnStarts = [];
   for (let i = 0; i < history.length; i++) {
     if (history[i].role === 'user' && !history[i].tool_call_id) userTurnStarts.push(i);
@@ -72,14 +122,6 @@ function trimHistory() {
   history.splice(0, cut);
 }
 
-let connection = null;
-
-/**
- * Current turn state (design D28). Only one turn runs at a time.
- * A new instruction cancels the running turn before starting.
- * @type {{ turnId: string, from: number|null, abort: AbortController, cancelled: boolean } | null}
- */
-let currentTurn = null;
 
 /** Monotonic turn counter for generating unique turnIds. */
 let turnCounter = 0;
@@ -100,23 +142,39 @@ export function nextTurnId() {
  * connection for its own diagnostic logging instead of opening a second one.
  * @returns {{ doc: import('yjs').Doc, provider: import('y-websocket').WebsocketProvider }}
  */
-export function getConnection() {
-  if (!connection) {
-    connection = connect();
+export function getConnection(room = ROOM) {
+  const state = getRoom(room);
+  if (!state.connection) {
+    state.connection = connect(room);
+    // A brand-new room is not synced yet. Editing before the first sync lands
+    // on an empty local copy and the change is lost when the real document
+    // arrives — measured Sep 29 on a fresh room. Every turn waits for this.
+    state.ready = new Promise((resolve) => {
+      state.connection.provider.once('synced', resolve);
+      setTimeout(resolve, SYNC_WAIT_MS); // never hang a turn on a dead relay
+    });
+    console.log(`[room] joined "${room}" (${rooms.size} active)`);
   }
-  return connection;
+  return state.connection;
+}
+
+/** Resolve once a room's first sync has landed (or the wait expires). */
+export async function roomReady(room = ROOM) {
+  getConnection(room);
+  await rooms.get(room)?.ready;
 }
 
 /**
  * Cancel the currently running turn, if any (design D28).
  * @returns {{ cancelled: boolean }}
  */
-export function cancelCurrentTurn() {
-  if (!currentTurn) {
+export function cancelCurrentTurn(room = ROOM) {
+  const state = rooms.get(room);
+  if (!state?.currentTurn) {
     return { cancelled: false };
   }
-  currentTurn.cancelled = true;
-  currentTurn.abort.abort();
+  state.currentTurn.cancelled = true;
+  state.currentTurn.abort.abort();
   return { cancelled: true };
 }
 
@@ -124,8 +182,8 @@ export function cancelCurrentTurn() {
  * Get the current turn state (for diagnostics).
  * @returns {typeof currentTurn}
  */
-export function getCurrentTurn() {
-  return currentTurn;
+export function getCurrentTurn(room = ROOM) {
+  return rooms.get(room)?.currentTurn ?? null;
 }
 
 /**
@@ -209,12 +267,21 @@ async function dispatchTool(doc, fn, opts = {}) {
  * @returns {Promise<{ ok: true, turnId: string } | { ok: false, error: string, turnId: string }>}
  */
 export async function handleInstruction(text, opts = {}) {
-  const { from = null, provider, turnId: providedTurnId } = opts;
-  const { doc } = getConnection();
+  const { from = null, provider: providedProvider, turnId: providedTurnId, room = ROOM } = opts;
+  // Per-room (design D41): this visitor's document, conversation and turn.
+  const { doc, provider: roomProvider } = getConnection(room);
+  const provider = providedProvider ?? roomProvider;
+  const state = getRoom(room);
+  const history = state.history;
 
-  // Cancel any running turn before starting a new one (design D28).
-  if (currentTurn) {
-    cancelCurrentTurn();
+  // Wait for the room's first sync, or an edit on a fresh room is applied to
+  // an empty copy and lost.
+  await roomReady(room);
+
+  // Cancel any running turn *in this room* before starting a new one
+  // (design D28). Another room's turn is none of this instruction's business.
+  if (state.currentTurn) {
+    cancelCurrentTurn(room);
     // Give the cancelled turn a moment to clean up.
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -222,7 +289,8 @@ export async function handleInstruction(text, opts = {}) {
   const turnId = providedTurnId || `turn-${++turnCounter}`;
   const abort = new AbortController();
 
-  currentTurn = { turnId, from, abort, cancelled: false };
+  const currentTurn = { turnId, from, abort, cancelled: false };
+  state.currentTurn = currentTurn;
 
   // Design D35/task 38.3: the guaranteed search acknowledgement only fires if
   // nothing — not the model's own words, not an earlier ack — has been
@@ -267,9 +335,9 @@ export async function handleInstruction(text, opts = {}) {
     const docText = readDoc(doc);
     // Compact *before* pushing, so the new turn keeps its full document view
     // and every older one loses its stale copy.
-    compactHistory();
+    compactHistory(history);
     history.push({ role: 'user', content: buildUserMessage(text, docText) });
-    trimHistory();
+    trimHistory(history);
 
     let documentChanged = false;
     let lastToolError = null;
@@ -401,9 +469,9 @@ export async function handleInstruction(text, opts = {}) {
     publishResult(false, error);
     return { ok: false, error, turnId };
   } finally {
-    // Clear currentTurn if this turn is still the active one.
-    if (currentTurn && currentTurn.turnId === turnId) {
-      currentTurn = null;
+    // Clear the room's turn if this one is still the active turn.
+    if (state.currentTurn && state.currentTurn.turnId === turnId) {
+      state.currentTurn = null;
     }
   }
 }
