@@ -15,16 +15,19 @@
  */
 
 import http from 'node:http';
-import { readDoc } from './doc-client.js';
-import { getConnection, handleInstruction, cancelCurrentTurn, nextTurnId } from './orchestrator.js';
+import { readDoc, appendText } from './doc-client.js';
+import { getConnection, handleInstruction, cancelCurrentTurn, nextTurnId, activeRooms } from './orchestrator.js';
 import { fetchStreamingToken, hasAssemblyAiKey, MissingAssemblyAiKeyError, AssemblyAiTokenError } from './stt-token.js';
 import { hasTavilyKey } from './search-web.js';
+import { checkRateLimit } from './rate-limit.js';
 import {
   ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH,
-  STT_TOKEN_PATH, CANCEL_PATH,
+  STT_TOKEN_PATH, CANCEL_PATH, CORS_ORIGIN, SEED_NEW_ROOMS,
 } from '../config.js';
 
-const CORS_ORIGIN = 'http://localhost:5173';
+// Render (and most hosts) inject the port to bind; locally there is none and
+// the pinned INSTRUCTION_PORT applies (design D39, task 44.6).
+const PORT = Number(process.env.PORT) || INSTRUCTION_PORT;
 
 console.log('Starting server-side participant...');
 console.log(`Connecting to ${WS_URL} in room ${ROOM}`);
@@ -50,21 +53,39 @@ if (!hasTavilyKey()) {
   );
 }
 
-const { doc, provider } = getConnection();
+// The agent no longer joins a room at startup (design D41): each visitor has
+// their own room, joined on demand when their first instruction arrives. The
+// D4 diagnostics move with it, logged once per room on first sync.
+export function watchRoom(room) {
+  const { doc, provider } = getConnection(room);
+  if (provider.__watched) return { doc, provider };
+  provider.__watched = true;
 
-provider.on('synced', () => {
-  console.log('Synced with relay');
-  console.log(`Share keys: ${[...doc.share.keys()]}`);
-  console.log(`FIELD: ${FIELD}`);
+  provider.once('synced', () => {
+    console.log(`[room ${room}] synced | share keys: ${[...doc.share.keys()]} | FIELD: ${FIELD}`);
+    const content = readDoc(doc);
+    console.log(`[room ${room}] document: ${content.length} chars`);
+    seedIfEmpty(doc, room);
+  });
+  return { doc, provider };
+}
 
-  const content = readDoc(doc);
-  console.log(`Initial document content (${content.length} chars):`);
-  console.log(content);
-});
-
-provider.on('status', (event) => {
-  console.log(`Connection status: ${event.status}`);
-});
+/**
+ * Give a brand-new room something to work with (design D44).
+ *
+ * A judge opening a fresh link would otherwise see a blank page and have
+ * nothing to instruct the agent about. Written instantly, not typed, and only
+ * when the document is genuinely empty, so it can never overwrite a visitor's
+ * work or double-seed after a reconnect.
+ */
+function seedIfEmpty(doc, room) {
+  if (!SEED_NEW_ROOMS) return;
+  const fragment = doc.getXmlFragment(FIELD);
+  if (fragment.length > 0) return;
+  appendText(doc, 'This is a rough draft of the intro to our project.');
+  appendText(doc, 'The team meets every Monday to plan the week.');
+  console.log(`[room ${room}] seeded the starter document`);
+}
 
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
@@ -119,6 +140,11 @@ const server = http.createServer(async (req, res) => {
   // permanent ASSEMBLYAI_API_KEY never leaves this process, and neither the
   // key nor the returned token is ever logged.
   if (req.method === 'GET' && req.url === STT_TOKEN_PATH) {
+    const tokenLimit = checkRateLimit(req, 'token');
+    if (!tokenLimit.allowed) {
+      sendJson(res, 429, { message: tokenLimit.message });
+      return;
+    }
     try {
       const { token } = await fetchStreamingToken();
       res.writeHead(200, {
@@ -143,7 +169,15 @@ const server = http.createServer(async (req, res) => {
 
   // POST /cancel — cancel the running turn (design D31, task 32.1).
   if (req.method === 'POST' && req.url === CANCEL_PATH) {
-    const { cancelled } = cancelCurrentTurn();
+    // Never rate-limited: stopping the agent must always work (design D42).
+    let room = ROOM;
+    try {
+      const raw = await readBody(req);
+      if (raw) room = JSON.parse(raw).room || ROOM;
+    } catch {
+      // A cancel with no body, or a malformed one, still cancels the default room.
+    }
+    const { cancelled } = cancelCurrentTurn(room);
     sendJson(res, 200, { cancelled });
     return;
   }
@@ -153,12 +187,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  let text, from;
+  const instructionLimit = checkRateLimit(req, 'instruction');
+  if (!instructionLimit.allowed) {
+    sendJson(res, 429, { message: instructionLimit.message });
+    return;
+  }
+
+  let text, from, room;
   try {
     const raw = await readBody(req);
     const body = raw ? JSON.parse(raw) : {};
     text = body.text;
     from = body.from ?? null;
+    room = body.room || ROOM;
   } catch {
     sendJson(res, 400, { message: 'invalid JSON body' });
     return;
@@ -175,9 +216,10 @@ const server = http.createServer(async (req, res) => {
     // the Assistant's awareness state as `lastResult`, so every tab can show
     // whether the instruction worked instead of failing silently.
     const turnId = nextTurnId();
-    handleInstruction(text, { from, provider, turnId })
+    const { provider } = watchRoom(room);
+    handleInstruction(text, { from, provider, turnId, room })
       .then((result) => {
-        if (result.ok) console.log(`[orchestrator] done: "${text}" (turnId: ${result.turnId})`);
+        if (result.ok) console.log(`[orchestrator] done: "${text}" (room: ${room}, turnId: ${result.turnId})`);
         else console.warn(`[orchestrator] failed: "${text}" — ${result.error} (turnId: ${result.turnId})`, result.message ?? '');
       })
       .catch((err) => {
@@ -191,16 +233,19 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(INSTRUCTION_PORT, () => {
-  console.log(`Instruction endpoint listening on http://localhost:${INSTRUCTION_PORT}${INSTRUCTION_PATH}`);
-  console.log(`Cancel endpoint listening on http://localhost:${INSTRUCTION_PORT}${CANCEL_PATH}`);
+server.listen(PORT, () => {
+  console.log(`Agent listening on port ${PORT} — ${INSTRUCTION_PATH}, ${CANCEL_PATH}, ${STT_TOKEN_PATH}`);
+  console.log(`Accepting browsers from ${CORS_ORIGIN}; relay ${WS_URL}`);
 });
 
 process.on('SIGINT', () => {
-  console.log('Disconnecting...');
+  console.log(`Disconnecting (${activeRooms().length} room(s) open)...`);
   server.close();
-  provider.disconnect();
-  doc.destroy();
+  for (const room of activeRooms()) {
+    const { provider, doc } = getConnection(room);
+    provider.disconnect();
+    doc.destroy();
+  }
   process.exit(0);
 });
 

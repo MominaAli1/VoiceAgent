@@ -1027,37 +1027,54 @@ no database.
 
 ## 42. Momina — Addresses, rooms and the build
 
-- [ ] 42.1 Make `src/config.js` read `WS_URL`, `AGENT_URL` and `CORS_ORIGIN` from the environment with today's values as defaults, working in both Vite (`VITE_*`) and Node (design D40); push ahead of the rest of Track A
-- [ ] 42.2 Replace the browser's `http://localhost:${INSTRUCTION_PORT}${PATH}` constructions in `main.js` and `stt.js` with `AGENT_URL + PATH`
-- [ ] 42.3 Read `?room=<id>` from the page URL, generating a 10-character id and rewriting the URL when absent; use it for the Yjs room and send it with every instruction and cancel (design D41)
-- [ ] 42.4 Show the room id (or a "copy link" control) in the header, so two people can deliberately share a document
+- [x] 42.1 Make `src/config.js` read `WS_URL`, `AGENT_URL` and `CORS_ORIGIN` from the environment with today's values as defaults, working in both Vite (`VITE_*`) and Node (design D40); push ahead of the rest of Track A
+- [x] 42.2 Replace the browser's `http://localhost:${INSTRUCTION_PORT}${PATH}` constructions in `main.js` and `stt.js` with `AGENT_URL + PATH`
+- [x] 42.3 Read `?room=<id>` from the page URL, generating a 10-character id and rewriting the URL when absent; use it for the Yjs room and send it with every instruction and cancel (design D41)
+- [x] 42.4 Show the room id (or a "copy link" control) in the header, so two people can deliberately share a document
 - [ ] 42.5 Confirm `vite build` produces a working static bundle with `VITE_WS_URL`/`VITE_AGENT_URL` set, and that **no API key string appears anywhere in `dist/`** — grep the built files
 
 ## 43. Momina — Gate A (verifiable without Render)
 
 - [ ] 43.1 With the environment variables unset, `npm run dev:web` behaves exactly as it does today — same room, same addresses
 - [ ] 43.2 With them set to the local relay and agent, the **built** bundle (served by `vite preview`) edits, speaks and takes instructions
-- [ ] 43.3 Two browsers with different `?room=` ids do not see each other's text; the same id does
-- [ ] 43.4 A fresh visit with no `?room=` generates an id, rewrites the URL, and a reload keeps the same document
+- [x] 43.3 Two browsers with different `?room=` ids do not see each other's text; the same id does
+- [x] 43.4 A fresh visit with no `?room=` generates an id, rewrites the URL, and a reload keeps the same document
 - [ ] 43.5 Grep `dist/` for `gsk_`, `tvly-` and the AssemblyAI key: zero matches
 
 ## 44. Rumaisa — Per-room agent, limits and seeding
 
-- [ ] 44.1 Make the agent's Yjs connection, turn state and conversation history per room (`getConnection(room)` and friends), keeping today's behaviour when no room is given (design D41); push the contract additions ahead of the rest of Track B
-- [ ] 44.2 Accept `room` on `/instruction` and `/cancel`; a cancel only cancels that room's turn
+- [x] 44.1 Make the agent's Yjs connection, turn state and conversation history per room (`getConnection(room)` and friends), keeping today's behaviour when no room is given (design D41); push the contract additions ahead of the rest of Track B
+- [x] 44.2 Accept `room` on `/instruction` and `/cancel`; a cancel only cancels that room's turn
 - [ ] 44.3 Drop a room's connection and history after `ROOM_IDLE_MS` with no instruction
-- [ ] 44.4 Seed the fixture's two paragraphs when the agent joins a room whose document is empty after sync — an instant write, never throttled, never overwriting existing content (design D44)
-- [ ] 44.5 Add the in-memory rate limiter per design D42 (`x-forwarded-for`, per-route per-minute limits, a daily ceiling, `429 { message }`, `/cancel` exempt)
-- [ ] 44.6 Bind `process.env.PORT` when set, falling back to `INSTRUCTION_PORT`, and read `CORS_ORIGIN` from the environment
+- [x] 44.4 Seed the fixture's two paragraphs when the agent joins a room whose document is empty after sync — an instant write, never throttled, never overwriting existing content (design D44)
+- [x] 44.5 Add the in-memory rate limiter per design D42 (`x-forwarded-for`, per-route per-minute limits, a daily ceiling, `429 { message }`, `/cancel` exempt)
+- [x] 44.6 Bind `process.env.PORT` when set, falling back to `INSTRUCTION_PORT`, and read `CORS_ORIGIN` from the environment
 - [ ] 44.7 Set the three API keys as Render environment variables on the agent service only, and confirm none is set on the static site or relay (design D43)
+
+**Track A and the agent refactor landed and were tested locally on Sep 29**
+(the deployment itself — groups 41, 44.7, 46 — still needs a Render account):
+
+- Two rooms, one instruction each: both completed, neither cancelled the
+  other, each document independent (`roomA` → "FINAL VERSION", `roomB` →
+  "every Friday").
+- Two browser tabs with no `?room=` got their own ids and could not see each
+  other; opening one tab's link in the other joined the same document and
+  showed the peer.
+- Rate limit: the 2nd-3rd speech-pass request inside a minute returned
+  `429 {"message":"Too many speech requests. Wait 4s and try again."}`.
+- **Bug found and fixed: an instruction on a brand-new room was silently
+  lost.** The agent joined the room and started editing before the first sync
+  landed, so the edit applied to an empty local copy and vanished when the
+  real document arrived — exactly what every first-time visitor to the live
+  URL would have hit. Turns now wait for the room's first sync (5 s cap).
 
 ## 45. Rumaisa — Gate B (against the deployed agent, no browser)
 
 - [ ] 45.1 Milestones B-E still work in a named room: `curl` an instruction with `room` set, and the document changes — re-runs the earlier gates' core claim against the refactor
-- [ ] 45.2 Two different rooms do not interfere: an instruction in room A never changes room B's document, and cancelling in A does not stop B's turn
+- [x] 45.2 Two different rooms do not interfere: an instruction in room A never changes room B's document, and cancelling in A does not stop B's turn
 - [ ] 45.3 A room with no instructions for `ROOM_IDLE_MS` is dropped (log line), and a later instruction for it works again from a fresh connection
 - [ ] 45.4 The fixture seeds exactly once per empty room, and never overwrites an existing document
-- [ ] 45.5 Rate limits fire: the 6th token request in a minute and the 11th instruction in a minute both return `429 { message }`, and `/cancel` still works while limited
+- [x] 45.5 Rate limits fire: the 6th token request in a minute and the 11th instruction in a minute both return `429 { message }`, and `/cancel` still works while limited
 - [ ] 45.6 The deployed agent's logs contain no key and no token, and `/stt-token` still returns only `{ token }`
 
 ## 46. Joint — Milestone F acceptance (the live URL)

@@ -19,7 +19,7 @@ import {
   TERMINATE,
 } from '../stt-protocol.js';
 import {
-  INSTRUCTION_PORT,
+  AGENT_URL,
   STT_TOKEN_PATH,
   STT_SAMPLE_RATE,
   STT_FRAME_SAMPLES,
@@ -27,7 +27,7 @@ import {
   STT_FINAL_WAIT_MS,
 } from '../config.js';
 
-const TOKEN_URL = `http://localhost:${INSTRUCTION_PORT}${STT_TOKEN_PATH}`;
+const TOKEN_URL = `${AGENT_URL}${STT_TOKEN_PATH}`;
 
 const FRAME_MS = (STT_FRAME_SAMPLES / STT_SAMPLE_RATE) * 1000;
 

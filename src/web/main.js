@@ -12,7 +12,8 @@ import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 
-import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, CANCEL_PATH, PTT_KEY_CODE, SEARCH_ACK, INSTANT_ACK } from '../config.js';
+import { WS_URL, FIELD, AGENT_URL, INSTRUCTION_PATH, CANCEL_PATH, PTT_KEY_CODE, SEARCH_ACK, INSTANT_ACK } from '../config.js';
+import { ROOM_ID, roomLink } from './room.js';
 import { randomUserColor } from '../palette.js';
 import { createSpeechInput } from './stt.js';
 import { speak, stop as stopSpeaking, onSpeaking } from './tts.js';
@@ -35,12 +36,12 @@ saveMe();
 // ---------------------------------------------------------------- transport
 
 const ydoc = new Y.Doc();
-const provider = new WebsocketProvider(WS_URL, ROOM, ydoc);
+const provider = new WebsocketProvider(WS_URL, ROOM_ID, ydoc);
 
 const statusEl = document.querySelector('#status');
 provider.on('status', ({ status }) => {
   statusEl.dataset.state = status;
-  statusEl.textContent = status === 'connected' ? `connected · ${ROOM}` : status;
+  statusEl.textContent = status === 'connected' ? `connected · ${ROOM_ID}` : status;
 });
 
 provider.once('synced', () => {
@@ -149,8 +150,8 @@ const instructionInput = document.querySelector('#instruction-input');
 const instructionSubmit = document.querySelector('#instruction-submit');
 const instructionStatus = document.querySelector('#instruction-status');
 
-const INSTRUCTION_URL = `http://localhost:${INSTRUCTION_PORT}${INSTRUCTION_PATH}`;
-const CANCEL_URL = `http://localhost:${INSTRUCTION_PORT}${CANCEL_PATH}`;
+const INSTRUCTION_URL = `${AGENT_URL}${INSTRUCTION_PATH}`;
+const CANCEL_URL = `${AGENT_URL}${CANCEL_PATH}`;
 
 // The turnId from the most recently accepted instruction (task 29.1).
 let lastTurnId = null;
@@ -171,7 +172,7 @@ instructionForm.addEventListener('submit', async (event) => {
       headers: { 'Content-Type': 'application/json' },
       // `from` is this tab's awareness clientID (design D27) — replies
       // addressed to it are the only ones this tab speaks.
-      body: JSON.stringify({ text, from: provider.awareness.clientID }),
+      body: JSON.stringify({ text, from: provider.awareness.clientID, room: ROOM_ID }),
     });
 
     if (res.status === 202) {
@@ -303,7 +304,7 @@ function pressStart() {
   // without waiting for the server's lastResult to confirm the cancel
   // (task 36.3).
   setSearching(false);
-  fetch(CANCEL_URL, { method: 'POST' }).catch(() => {});
+  fetch(CANCEL_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: ROOM_ID }) }).catch(() => {});
   speech.startPress();
 }
 
@@ -334,3 +335,24 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 
 // Handy for poking at the document from the browser console.
 Object.assign(window, { editor, ydoc, provider, Y });
+
+// ---------------------------------------------------------------- room sharing (Milestone F)
+
+// Each visitor gets their own document (design D41). This button is how two
+// people deliberately end up in the same one.
+const copyLinkEl = document.querySelector('#copy-link');
+copyLinkEl?.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(roomLink());
+    copyLinkEl.dataset.copied = 'true';
+    copyLinkEl.textContent = 'Link copied';
+  } catch {
+    // Clipboard blocked (insecure context, or permission denied): show the
+    // link so it can still be copied by hand.
+    copyLinkEl.textContent = roomLink();
+  }
+  setTimeout(() => {
+    delete copyLinkEl.dataset.copied;
+    copyLinkEl.textContent = 'Copy link';
+  }, 2000);
+});

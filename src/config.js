@@ -7,8 +7,22 @@
  * isolation and simply never see each other, with no error to point at.
  */
 
-/** The y-websocket room every participant joins. */
-export const ROOM = 'voice-doc-agent';
+/**
+ * Read a deployment setting (design D40, Milestone F).
+ *
+ * The same module is imported by the browser and by Node, so it checks both:
+ * Vite replaces `import.meta.env.VITE_*` at build time; Node reads
+ * `process.env`. With neither set, every value falls back to the localhost
+ * default it had before deployment existed, so local development is unchanged.
+ */
+function env(key) {
+  const fromNode = typeof process !== 'undefined' ? process.env?.[key] : undefined;
+  const fromVite = import.meta.env?.[`VITE_${key}`];
+  return fromNode || fromVite || undefined;
+}
+
+/** Default room, used when no `?room=` is given (local development, harness). */
+export const ROOM = env('ROOM') ?? 'voice-doc-agent';
 
 /**
  * The y-websocket relay. Started by `npm run dev:ws`.
@@ -17,7 +31,30 @@ export const ROOM = 'voice-doc-agent';
  * resolves `localhost` to `127.0.0.1` (IPv4) on some systems, which causes
  * ECONNREFUSED. Use the IPv6 literal `[::1]` to ensure a reliable connection.
  */
-export const WS_URL = 'ws://[::1]:1234';
+export const WS_URL = env('WS_URL') ?? 'ws://[::1]:1234';
+
+/**
+ * Base URL of the agent's HTTP endpoints (design D40).
+ *
+ * In production the agent sits behind https on port 443, not 3001, so the
+ * browser builds its URLs from this rather than from INSTRUCTION_PORT.
+ */
+export const AGENT_URL = env('AGENT_URL') ?? 'http://localhost:3001';
+
+/** Page origin the agent accepts cross-origin requests from (design D40). */
+export const CORS_ORIGIN = env('CORS_ORIGIN') ?? 'http://localhost:5173';
+
+/** Drop a room's connection, turn state and history after this long idle (design D41). */
+export const ROOM_IDLE_MS = Number(env('ROOM_IDLE_MS') ?? 600000);
+
+/** Per-IP speech passes per minute — matches AssemblyAI's own free-plan limit (design D42). */
+export const RATE_LIMIT_TOKENS_PER_MIN = Number(env('RATE_LIMIT_TOKENS_PER_MIN') ?? 5);
+
+/** Per-IP instructions per minute (design D42). */
+export const RATE_LIMIT_INSTRUCTIONS_PER_MIN = Number(env('RATE_LIMIT_INSTRUCTIONS_PER_MIN') ?? 10);
+
+/** Per-IP requests per day across both routes (design D42). */
+export const RATE_LIMIT_DAILY = Number(env('RATE_LIMIT_DAILY') ?? 200);
 
 /**
  * The Yjs share key holding the document.
@@ -160,3 +197,12 @@ export const SEARCH_ACK = 'Let me look that up.';
  * first sound on a search turn landed 2-3 s after the user stopped speaking.
  */
 export const INSTANT_ACK = 'On it.';
+
+/**
+ * Whether a brand-new room gets two starter paragraphs (design D44).
+ *
+ * Off by default: a blank page is the right start when you are actually
+ * writing something. Turn it on for the public demo (`SEED_NEW_ROOMS=true`)
+ * so a judge opening a fresh link has text to instruct the agent about.
+ */
+export const SEED_NEW_ROOMS = (env('SEED_NEW_ROOMS') ?? 'false') === 'true';
