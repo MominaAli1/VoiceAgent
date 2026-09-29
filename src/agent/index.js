@@ -22,7 +22,7 @@ import { hasTavilyKey } from './search-web.js';
 import { checkRateLimit } from './rate-limit.js';
 import {
   ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH,
-  STT_TOKEN_PATH, CANCEL_PATH, CORS_ORIGIN,
+  STT_TOKEN_PATH, CANCEL_PATH, CORS_ORIGIN, SEED_NEW_ROOMS,
 } from '../config.js';
 
 // Render (and most hosts) inject the port to bind; locally there is none and
@@ -79,6 +79,7 @@ export function watchRoom(room) {
  * work or double-seed after a reconnect.
  */
 function seedIfEmpty(doc, room) {
+  if (!SEED_NEW_ROOMS) return;
   const fragment = doc.getXmlFragment(FIELD);
   if (fragment.length > 0) return;
   appendText(doc, 'This is a rough draft of the intro to our project.');

@@ -72,11 +72,13 @@ export function activeRooms() {
 }
 
 /**
- * Turns of history kept. Every turn resends the whole history plus the whole
- * document, so an unbounded history makes each turn slower than the last —
- * measured Sep 29 as part of a search turn taking 8-11 s.
+ * Turns of history kept. Every turn resends the history, so this cannot be
+ * unbounded — but it is what the agent remembers of the conversation, and at
+ * 6 turns a real back-and-forth ("what do you think" → "try this" → "show me
+ * that again") ran off the end mid-discussion. Cheap now that older turns no
+ * longer carry a copy of the document (compactHistory).
  */
-const MAX_HISTORY_TURNS = 6;
+const MAX_HISTORY_TURNS = 16;
 
 /** Longest a turn waits for a new room's first sync before proceeding anyway. */
 const SYNC_WAIT_MS = 5000;

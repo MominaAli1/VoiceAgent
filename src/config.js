@@ -197,3 +197,12 @@ export const SEARCH_ACK = 'Let me look that up.';
  * first sound on a search turn landed 2-3 s after the user stopped speaking.
  */
 export const INSTANT_ACK = 'On it.';
+
+/**
+ * Whether a brand-new room gets two starter paragraphs (design D44).
+ *
+ * Off by default: a blank page is the right start when you are actually
+ * writing something. Turn it on for the public demo (`SEED_NEW_ROOMS=true`)
+ * so a judge opening a fresh link has text to instruct the agent about.
+ */
+export const SEED_NEW_ROOMS = (env('SEED_NEW_ROOMS') ?? 'false') === 'true';
