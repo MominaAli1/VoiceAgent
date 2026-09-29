@@ -12,7 +12,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 
-import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, CANCEL_PATH, PTT_KEY_CODE, SEARCH_ACK } from '../config.js';
+import { ROOM, WS_URL, FIELD, INSTRUCTION_PORT, INSTRUCTION_PATH, CANCEL_PATH, PTT_KEY_CODE, SEARCH_ACK, INSTANT_ACK } from '../config.js';
 import { randomUserColor } from '../palette.js';
 import { createSpeechInput } from './stt.js';
 import { speak, stop as stopSpeaking, onSpeaking } from './tts.js';
@@ -248,7 +248,10 @@ provider.awareness.on('change', () => {
     if (reply && reply.at > lastReplyAt) {
       lastReplyAt = reply.at;
       assistantReplyEl.textContent = reply.text;
-      if (reply.to === provider.awareness.clientID) {
+      // The agent's search acknowledgement is redundant now that the browser
+      // speaks INSTANT_ACK on submit — saying both is two filler lines in a
+      // row. Still shown on screen, just not spoken.
+      if (reply.to === provider.awareness.clientID && reply.text !== SEARCH_ACK) {
         speak(reply.text);
       }
       setSearching(reply.text === SEARCH_ACK);
@@ -279,6 +282,11 @@ const speech = createSpeechInput({
     }
     showTranscript('final', text);
     instructionInput.value = text;
+    // Speak immediately, here, rather than waiting for the agent's own reply:
+    // the model's first round trip takes 2-3 s, and an edit turn produces no
+    // words at all, so without this the agent is silent exactly when the user
+    // is waiting to hear that it heard them.
+    speak(INSTANT_ACK);
     instructionForm.requestSubmit();
   },
   onError: (message) => showTranscript('error', message),

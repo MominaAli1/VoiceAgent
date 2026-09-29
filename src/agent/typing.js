@@ -19,8 +19,11 @@
 import * as Y from 'yjs';
 import { FIELD } from '../config.js';
 
-const DEFAULT_CHUNK_SIZE = 3;
-const DEFAULT_DELAY_MS = 35;
+// Measured Sep 29: at 3 chars / 35 ms a 165-character search finding took ~1.9 s
+// to type, on top of ~7 s of model and search latency. 5 chars / 25 ms halves
+// that and still reads as typing rather than pasting (design D17's intent).
+const DEFAULT_CHUNK_SIZE = 5;
+const DEFAULT_DELAY_MS = 25;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

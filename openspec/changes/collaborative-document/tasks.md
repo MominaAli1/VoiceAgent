@@ -830,11 +830,10 @@ live HTTP tests against the running agent.
 
 Relay, web and agent running with both keys; **speakers, not headphones**.
 
-**Reported working in a manual run on Sep 25** — speaking and interruption
-were tried by hand and behaved correctly. The boxes below stay unticked
-because none of the *measured* items were recorded (34.2's under-1-s figure,
-34.3's 200 ms audio stop), Gate A (group 30) was never run, and 34.9's README
-update is still outstanding. Tick them as they are actually measured.
+**Correction (Sep 29):** an earlier note here said Milestone D was "reported
+working in a manual run on Sep 25". That was wrong — no manual run happened.
+Treat this group as unverified except where a check below records its own
+evidence.
 
 - [ ] 34.1 Speak an edit instruction: the agent speaks a short line and the document edit streams in; both tabs see the edit, only the instructing tab speaks
 - [ ] 34.2 The first spoken word starts under 1 s after the final transcript (brief's budget) — record the measured number even if it fails
