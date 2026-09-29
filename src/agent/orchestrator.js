@@ -38,6 +38,30 @@ const MAX_HISTORY_TURNS = 6;
  * assistant message carrying `tool_calls` must keep the `tool` messages that
  * answer it, or the API rejects the whole request.
  */
+/**
+ * Strip the document snapshot out of older turns.
+ *
+ * Every user message embeds the whole document (buildUserMessage), and every
+ * search result is ~1,500 characters of page text. Keeping those verbatim
+ * means turn N sends N copies of the document, so turns get slower the longer
+ * you use it — measured Sep 29: a search turn that took 5.9 s on a short
+ * document took 29 s once a few turns of history had accumulated.
+ *
+ * Only the current turn needs the live document; older turns just need to
+ * record what was asked.
+ */
+function compactHistory() {
+  for (const message of history) {
+    if (message.role === 'user' && typeof message.content === 'string') {
+      const i = message.content.indexOf('Instruction: ');
+      if (i !== -1) message.content = message.content.slice(i);
+    }
+    if (message.role === 'tool' && typeof message.content === 'string' && message.content.length > 300) {
+      message.content = `${message.content.slice(0, 300)}… (truncated)`;
+    }
+  }
+}
+
 function trimHistory() {
   const userTurnStarts = [];
   for (let i = 0; i < history.length; i++) {
@@ -241,6 +265,9 @@ export async function handleInstruction(text, opts = {}) {
 
   try {
     const docText = readDoc(doc);
+    // Compact *before* pushing, so the new turn keeps its full document view
+    // and every older one loses its stale copy.
+    compactHistory();
     history.push({ role: 'user', content: buildUserMessage(text, docText) });
     trimHistory();
 
