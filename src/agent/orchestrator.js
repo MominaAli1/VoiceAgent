@@ -24,6 +24,30 @@ const MAX_WORDS = 2000;
 // In-memory conversation history for the life of the process.
 const history = [];
 
+/**
+ * Turns of history kept. Every turn resends the whole history plus the whole
+ * document, so an unbounded history makes each turn slower than the last —
+ * measured Sep 29 as part of a search turn taking 8-11 s.
+ */
+const MAX_HISTORY_TURNS = 6;
+
+/**
+ * Drop the oldest turns, cutting only at a `user` message.
+ *
+ * Trimming at an arbitrary index would be worse than not trimming: an
+ * assistant message carrying `tool_calls` must keep the `tool` messages that
+ * answer it, or the API rejects the whole request.
+ */
+function trimHistory() {
+  const userTurnStarts = [];
+  for (let i = 0; i < history.length; i++) {
+    if (history[i].role === 'user' && !history[i].tool_call_id) userTurnStarts.push(i);
+  }
+  if (userTurnStarts.length <= MAX_HISTORY_TURNS) return;
+  const cut = userTurnStarts[userTurnStarts.length - MAX_HISTORY_TURNS];
+  history.splice(0, cut);
+}
+
 let connection = null;
 
 /**
@@ -176,6 +200,13 @@ export async function handleInstruction(text, opts = {}) {
 
   currentTurn = { turnId, from, abort, cancelled: false };
 
+  // Design D35/task 38.3: the guaranteed search acknowledgement only fires if
+  // nothing — not the model's own words, not an earlier ack — has been
+  // published yet this turn. Declared here, alongside publishReply(), because
+  // publishReply() writes to it; declaring it inside the turn body put it out
+  // of scope and made the first search_web call throw a ReferenceError.
+  let publishedThisTurn = false;
+
   /**
    * Publish a reply on the Assistant's awareness state (design D27).
    * @param {string} replyText
@@ -211,14 +242,12 @@ export async function handleInstruction(text, opts = {}) {
   try {
     const docText = readDoc(doc);
     history.push({ role: 'user', content: buildUserMessage(text, docText) });
+    trimHistory();
 
     let documentChanged = false;
     let lastToolError = null;
-    // Design D35/task 38.3: the guaranteed search acknowledgement only fires
-    // if nothing — not the model's own words, not an earlier ack — has been
-    // published yet this turn. Design D37/task 38.4: search_web is capped
-    // per turn, across all attempts, not just within one.
-    let publishedThisTurn = false;
+    // Design D37/task 38.4: search_web is capped per turn, across all
+    // attempts, not just within one.
     let searchCallCount = 0;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {

@@ -152,3 +152,11 @@ export const SEARCH_MAX_PER_TURN = 2;
  * (design D35). The model's own words win when present; this is the floor.
  */
 export const SEARCH_ACK = 'Let me look that up.';
+
+/**
+ * Spoken the instant a voice instruction is submitted, from the browser, so
+ * the user hears something in ~0.1 s instead of waiting ~2-3 s for the model's
+ * first round trip to decide what to do. Measured Sep 29: without it, the
+ * first sound on a search turn landed 2-3 s after the user stopped speaking.
+ */
+export const INSTANT_ACK = 'On it.';
