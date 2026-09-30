@@ -21,13 +21,7 @@
 
 body {
   margin: 0;
-  /* Requested backdrop: the uploaded pink grid-paper texture, tiled, in
-     place of the dot-grid/gradient background this redesign landed with. */
   background-color: var(--bg);
-  background-image: url('/background-grid.jpg');
-  background-size: 400px;
-  background-repeat: repeat;
-  background-attachment: fixed;
   color: var(--text);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 15px;
@@ -35,6 +29,26 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'cv11', 'ss01';
+  position: relative;
+}
+
+/* Grid-paper backdrop (uploaded reference), recolored from its original pink
+   to the app's indigo/violet brand hue via hue-rotate so it reads as part of
+   this palette instead of clashing with it, and softened so it stays a quiet
+   texture behind the opaque editor card and header/dock rather than
+   competing with them. A fixed pseudo-element (not body's own
+   background-image) so the filter doesn't wash out the actual UI on top. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--bg);
+  background-image: url('/background-grid.jpg');
+  background-size: 460px;
+  background-repeat: repeat;
+  filter: hue-rotate(-113deg) saturate(1.3) brightness(1.04);
+  opacity: 0.85;
 }
 
 /* ================================================================
