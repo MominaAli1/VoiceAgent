@@ -22,6 +22,12 @@ services:
     buildCommand: npm ci
     startCommand: npm run start:relay
     healthCheckPath: /
+    envVars:
+      # The relay binary reads HOST/PORT from the environment and ignores
+      # --port. Without HOST it binds localhost only and the platform's port
+      # scan finds nothing.
+      - key: HOST
+        value: 0.0.0.0
 
   - type: web
     name: penpal-agent

@@ -11,7 +11,7 @@
     "dev:agent": "node --env-file=.env src/agent/index.js",
     "build": "vite build",
     "preview": "vite preview --port 4173",
-    "start:relay": "npx y-websocket --port ${PORT:-1234}",
+    "start:relay": "HOST=0.0.0.0 npx y-websocket",
     "start:agent": "node src/agent/index.js"
   },
   "dependencies": {
