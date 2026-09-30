@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Voice Doc Agent — Collaborative Document</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='24' height='24' rx='6' fill='url(%23g)'/%3E%3Cpath d='M12 4C7.58 4 4 7.58 4 12s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm-.8 14.34c-3.16-.39-5.6-3.08-5.6-6.34 0-.5.06-.97.17-1.43L9.2 14v.8c0 .88.72 1.6 1.6 1.6v1.94h.4zm5.52-2.03c-.21-.65-.8-1.11-1.52-1.11h-.8v-2.4c0-.44-.36-.8-.8-.8H10.4v-1.6h1.6c.44 0 .8-.36.8-.8V8h1.6c.88 0 1.6-.72 1.6-1.6v-.33c2.34.95 4 3.25 4 5.93 0 1.66-.64 3.18-1.68 4.31z' fill='%23fff'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -32,7 +33,12 @@
     <!-- Main App (hidden until splash dismissed) -->
     <div id="app" class="app-hidden">
     <header class="bar">
-      <img class="bar-logo" src="/penpal-logo.png" alt="PenPal" />
+      <!-- Rumaisa's brand block, with the PenPal artwork in place of the
+           placeholder mark and wordmark (the logo carries the name). -->
+      <div class="brand">
+        <img class="brand-logo" src="/penpal-logo.png" alt="PenPal" />
+      </div>
+      <span class="bar-divider" aria-hidden="true"></span>
       <div class="identity">
         <span class="swatch" id="swatch"></span>
         <input id="name" type="text" aria-label="Your display name" maxlength="24" />
@@ -68,7 +74,12 @@
           maxlength="500"
           autocomplete="off"
         />
-        <button id="instruction-submit" type="submit">Send</button>
+        <button id="instruction-submit" type="submit">
+          Send
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
         <!-- Distinct from "speaking" (assistant-reply) and from the visible
              streaming edit itself — a search has no other visible sign it's
              in flight (design D35/task 35.2). -->
