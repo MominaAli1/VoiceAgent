@@ -21,15 +21,12 @@
 
 body {
   margin: 0;
+  /* Requested backdrop: the uploaded pink grid-paper texture, tiled, in
+     place of the dot-grid/gradient background this redesign landed with. */
   background-color: var(--bg);
-  background-image:
-    radial-gradient(circle at 1px 1px, rgba(79, 70, 229, 0.09) 1px, transparent 0),
-    radial-gradient(ellipse 1100px 650px at 12% -12%, rgba(99, 102, 241, 0.14), transparent 60%),
-    radial-gradient(ellipse 900px 650px at 105% -5%, rgba(139, 92, 246, 0.12), transparent 58%),
-    radial-gradient(ellipse 800px 600px at 50% 115%, rgba(79, 70, 229, 0.07), transparent 60%),
-    linear-gradient(180deg, #f3f2fd 0%, #f6f7fc 320px, #f6f7fc 100%);
-  background-size: 26px 26px, auto, auto, auto, auto;
-  background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+  background-image: url('/background-grid.jpg');
+  background-size: 400px;
+  background-repeat: repeat;
   background-attachment: fixed;
   color: var(--text);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -507,7 +504,24 @@ main { padding: 48px 24px 28vh; }
   color: var(--muted);
   flex: none;
 }
-.agent-status[data-state='searching']::before { content: ''; }
+/* main.js only ever sets `dataset.state` here, never textContent (task 35.2)
+   — the icon and label are both CSS-generated, so a bare `content: ''`
+   shows nothing at all while a search is in flight. */
+.agent-status[data-state='searching'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-status[data-state='searching']::before {
+  content: '';
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+.agent-status[data-state='searching']::after {
+  content: 'Searching…';
+}
 
 /* ================================================================
    REMOTE CARETS
