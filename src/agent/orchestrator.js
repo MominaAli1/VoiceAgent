@@ -399,13 +399,16 @@ export async function handleInstruction(text, opts = {}) {
           return { ok: true, turnId };
         }
 
-        // No tool call, no content, no document change yet — re-prompt
-        // once, explicitly requiring a tool call (design D14).
+        // No tool call, no content, no document change yet — nudge once
+        // (design D14). Since Milestone D the agent is also allowed to just
+        // talk, so this asks for *something*: demanding a tool call here
+        // made it try to edit when the person was only thinking out loud.
         history.push({
           role: 'user',
           content:
-            'You must call a tool (edit_doc, append_doc or search_web) to make progress on this instruction. ' +
-            'Respond only with a tool call, not plain text.',
+            'You replied with nothing at all. Say one short sentence back: either what you are about to ' +
+            'do (and call the matching tool), or a question asking what they meant if the request was ' +
+            'too short to act on.',
         });
         continue;
       }
@@ -467,9 +470,16 @@ export async function handleInstruction(text, opts = {}) {
       }
     }
 
-    const error = lastToolError
-      ? `retries exhausted after ${MAX_ATTEMPTS} attempts: ${lastToolError}`
-      : `retries exhausted after ${MAX_ATTEMPTS} attempts`;
+    // Out of attempts. If the model never managed a usable tool call, that is
+    // usually a request too short to act on ("key figures", "type down") — so
+    // ask, out loud, instead of showing the user a developer's error string.
+    if (!lastToolError) {
+      publishReply("Sorry — I didn't catch what you'd like me to do. Could you say that again?", true);
+      publishResult(true);
+      return { ok: true, turnId };
+    }
+
+    const error = `retries exhausted after ${MAX_ATTEMPTS} attempts: ${lastToolError}`;
     publishResult(false, error);
     return { ok: false, error, turnId };
   } finally {
