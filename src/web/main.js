@@ -18,6 +18,26 @@ import { randomUserColor } from '../palette.js';
 import { createSpeechInput } from './stt.js';
 import { speak, stop as stopSpeaking, onSpeaking } from './tts.js';
 
+// ---------------------------------------------------------------- splash screen
+
+const splashEl = document.querySelector('#splash');
+const appEl = document.querySelector('#app');
+const startBtn = document.querySelector('#start-btn');
+
+function dismissSplash() {
+  splashEl.classList.add('fade-out');
+  setTimeout(() => {
+    splashEl.style.display = 'none';
+    appEl.classList.remove('app-hidden');
+    appEl.classList.add('app-visible');
+  }, 400);
+}
+
+startBtn.addEventListener('click', dismissSplash);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && splashEl.style.display !== 'none') dismissSplash();
+});
+
 // ---------------------------------------------------------------- identity
 
 // Per-tab, not per-browser: sessionStorage means a second tab is a second
