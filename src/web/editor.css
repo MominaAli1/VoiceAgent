@@ -21,15 +21,19 @@
 
 body {
   margin: 0;
-  background-color: var(--bg);
+  /* Soft pink grid behind the document — colours sampled from the supplied
+     pattern (paper rgb(254,236,234), rule rgb(188,161,166)). Drawn in CSS
+     rather than tiled from the image: crisp at any zoom, no seams, and a few
+     hundred bytes instead of a megabyte. The every-fifth rule is kept barely
+     darker than the rest so it reads as cute stationery, not graph paper. */
+  background-color: #fdecea;
   background-image:
-    radial-gradient(circle at 1px 1px, rgba(79, 70, 229, 0.09) 1px, transparent 0),
-    radial-gradient(ellipse 1100px 650px at 12% -12%, rgba(99, 102, 241, 0.14), transparent 60%),
-    radial-gradient(ellipse 900px 650px at 105% -5%, rgba(139, 92, 246, 0.12), transparent 58%),
-    radial-gradient(ellipse 800px 600px at 50% 115%, rgba(79, 70, 229, 0.07), transparent 60%),
-    linear-gradient(180deg, #f3f2fd 0%, #f6f7fc 320px, #f6f7fc 100%);
-  background-size: 26px 26px, auto, auto, auto, auto;
-  background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+    linear-gradient(rgba(196, 126, 140, 0.75) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(196, 126, 140, 0.75) 1px, transparent 1px),
+    linear-gradient(rgba(224, 158, 168, 0.55) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(224, 158, 168, 0.55) 1px, transparent 1px);
+  background-size: 132px 132px, 132px 132px, 22px 22px, 22px 22px;
+  background-repeat: repeat;
   background-attachment: fixed;
   color: var(--text);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
