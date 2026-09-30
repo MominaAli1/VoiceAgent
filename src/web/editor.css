@@ -517,3 +517,25 @@ main { padding: 48px 24px 28vh; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+/* ---- PenPal logo ---- */
+
+/* Splash: the light (knocked-out) logo, since the splash background is dark. */
+.splash-logo {
+  width: min(340px, 68vw);
+  height: auto;
+  margin: 0 0 20px;
+  /* The artwork is hand-lettered ink; a soft shadow keeps it from floating. */
+  filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.35));
+}
+
+/* Header: the dark logo, sized to the bar and kept clear of the name field. */
+.bar-logo {
+  height: 26px;
+  width: auto;
+  flex: none;
+  margin-right: 4px;
+}
+
+@media (max-width: 640px) {
+  .bar-logo { height: 22px; }
+}
