@@ -28,11 +28,41 @@ export class MissingApiKeyError extends Error {
 
 /** Distinct error type for a Groq rate-limit response (design D14). */
 export class RateLimitError extends Error {
-  constructor(cause) {
-    super('Groq rate limit exceeded. This instruction was not retried automatically.');
+  constructor(cause, waitSeconds) {
+    super(
+      waitSeconds
+        ? `Hitting the free AI plan's limit — try again in about ${waitSeconds}s.`
+        : "Hitting the free AI plan's limit — give it a few seconds and try again.",
+    );
     this.name = 'RateLimitError';
+    this.waitSeconds = waitSeconds ?? null;
     this.cause = cause;
   }
+}
+
+/** Longest we sit waiting out a 429 before telling the user (seconds). */
+const MAX_RATE_LIMIT_WAIT_S = 12;
+
+/**
+ * Seconds to wait, from a 429's own headers.
+ *
+ * The free plan's binding limit is tokens per minute (8,000, measured Sep 29),
+ * and that bucket refills continuously — a 429 is usually clear again in a few
+ * seconds, not a minute.
+ */
+function retryAfterSeconds(err) {
+  const headers = err?.headers ?? {};
+  const get = (k) => (typeof headers.get === 'function' ? headers.get(k) : headers[k]);
+  const retryAfter = Number(get('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter;
+
+  // e.g. "7.66s", "1m20s"
+  const reset = get('x-ratelimit-reset-tokens') ?? get('x-ratelimit-reset-requests');
+  if (typeof reset === 'string') {
+    const m = reset.match(/(?:(\d+)m)?([\d.]+)s/);
+    if (m) return Number(m[1] ?? 0) * 60 + Number(m[2]);
+  }
+  return null;
 }
 
 const apiKey = process.env.GROQ_API_KEY;
@@ -186,7 +216,14 @@ export async function chat(messages, opts = {}) {
     );
   } catch (err) {
     if (err instanceof Groq.RateLimitError) {
-      throw new RateLimitError(err);
+      const wait = retryAfterSeconds(err);
+      // A short wait is worth taking here rather than failing the turn: the
+      // token bucket refills continuously, so most 429s clear in seconds.
+      if (!opts.retried && wait !== null && wait <= MAX_RATE_LIMIT_WAIT_S) {
+        await new Promise((resolve) => setTimeout(resolve, wait * 1000 + 250));
+        return chat(messages, { ...opts, retried: true });
+      }
+      throw new RateLimitError(err, wait ? Math.ceil(wait) : null);
     }
     throw err;
   }
