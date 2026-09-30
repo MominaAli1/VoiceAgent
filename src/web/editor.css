@@ -21,7 +21,16 @@
 
 body {
   margin: 0;
-  background-color: var(--bg);
+  /* The supplied pink pattern, used as-is. `cover` + `fixed` keeps one clean
+     copy across the viewport (the artwork does not tile seamlessly) and stops
+     it scrolling with the page. The colour underneath matches the paper, so
+     there is never a flash of white before the image loads. */
+  background-color: #fdecea;
+  background-image: url('/paper-bg.jpg');
+  background-size: auto;
+  background-position: top left;
+  background-repeat: repeat;
+  background-attachment: fixed;
   color: var(--text);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 15px;
@@ -38,7 +47,7 @@ body {
    texture behind the opaque editor card and header/dock rather than
    competing with them. A fixed pseudo-element (not body's own
    background-image) so the filter doesn't wash out the actual UI on top. */
-body::before {
+body::before { display: none; /* pink artwork is used as-is on body */
   content: '';
   position: fixed;
   inset: 0;
@@ -63,7 +72,9 @@ body::before {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+  /* Same paper pink as the document backdrop, but plain — the pattern is for
+     the workspace, the splash is the quiet cover. */
+  background: #fdecea;
   overflow: hidden;
   transition: opacity 0.5s ease, transform 0.5s ease;
 }
@@ -81,9 +92,8 @@ body::before {
   left: -50%;
   width: 200%;
   height: 200%;
-  background: radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
-              radial-gradient(ellipse at 70% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
-              radial-gradient(ellipse at 50% 50%, rgba(79, 70, 229, 0.05) 0%, transparent 70%);
+  background: radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, 0.55) 0%, transparent 55%),
+              radial-gradient(ellipse at 70% 80%, rgba(233, 176, 186, 0.28) 0%, transparent 55%);
   animation: splash-glow 8s ease-in-out infinite alternate;
 }
 
@@ -144,7 +154,7 @@ body::before {
 .splash-subtitle {
   font-size: 1.15rem;
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.6);
+  color: #6f4a52;
   margin: 0 0 48px;
   max-width: 420px;
   line-height: 1.5;
@@ -158,26 +168,24 @@ body::before {
   font-family: 'Inter', sans-serif;
   font-size: 1.05rem;
   font-weight: 600;
-  color: #1e1b4b;
-  background: linear-gradient(135deg, #a5b4fc 0%, #818cf8 50%, #c4b5fd 100%);
+  color: #fdecea;
+  background: #2a1f23;
   border: none;
   border-radius: 14px;
   cursor: pointer;
   transition: all 0.25s ease;
-  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.35),
-              0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  box-shadow: 0 6px 20px rgba(120, 70, 80, 0.28);
   letter-spacing: -0.01em;
 }
 
 .splash-start-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.45),
-              0 0 0 1px rgba(255, 255, 255, 0.15) inset;
+  box-shadow: 0 10px 28px rgba(120, 70, 80, 0.36);
 }
 
 .splash-start-btn:active {
   transform: translateY(0);
-  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 3px 10px rgba(120, 70, 80, 0.26);
 }
 
 .splash-start-btn svg {
@@ -190,7 +198,7 @@ body::before {
 
 .splash-hint {
   font-size: 0.82rem;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(111, 74, 82, 0.6);
   margin: 28px 0 0;
   letter-spacing: 0.02em;
 }
@@ -202,7 +210,7 @@ body::before {
   right: 0;
   text-align: center;
   font-size: 0.78rem;
-  color: rgba(255, 255, 255, 0.2);
+  color: rgba(111, 74, 82, 0.45);
   letter-spacing: 0.03em;
 }
 
@@ -595,3 +603,27 @@ main { padding: 48px 24px 28vh; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+/* ---- PenPal logo ---- */
+
+/* Splash: the light (knocked-out) logo, since the splash background is dark. */
+.splash-logo {
+  width: min(340px, 68vw);
+  height: auto;
+  margin: 0 0 20px;
+  /* Ink on paper now, so only the faintest lift. */
+  filter: drop-shadow(0 4px 14px rgba(140, 90, 100, 0.18));
+}
+
+/* Header: the dark logo, inside Rumaisa's .brand block (which keeps the
+   divider and spacing). Replaces .brand-mark + .brand-name, since the
+   artwork already carries the name. */
+.brand-logo {
+  height: 24px;
+  width: auto;
+  flex: none;
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .brand-logo { height: 20px; }
+}

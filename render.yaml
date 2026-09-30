@@ -1,0 +1,67 @@
+# Render blueprint — three services, as in design D39.
+#
+#   penpal-relay : the stock y-websocket relay (documents live in its memory)
+#   penpal-agent : the Node agent; the only service that holds API keys
+#   penpal-web   : the built editor page, served as a static site
+#
+# Deploy: Render dashboard → New → Blueprint → pick this repo. Render will
+# prompt for the three secrets (marked `sync: false`); nothing secret is in
+# this file.
+#
+# The service names below also decide the URLs (https://<name>.onrender.com),
+# and those URLs are wired into the other services' env vars. If a name is
+# already taken on Render, change it here AND in the matching URL below —
+# otherwise the browser will call the wrong host and be refused by CORS.
+
+services:
+  - type: web
+    name: penpal-relay
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci
+    startCommand: npm run start:relay
+    healthCheckPath: /
+
+  - type: web
+    name: penpal-agent
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci
+    startCommand: npm run start:agent
+    envVars:
+      # Secrets: Render prompts for these, they are never committed.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      # The relay the agent joins. wss:// because the page is https.
+      - key: WS_URL
+        value: wss://penpal-relay.onrender.com
+      # The only origin allowed to call /instruction, /cancel and /stt-token.
+      - key: CORS_ORIGIN
+        value: https://penpal-web.onrender.com
+      # A stranger opening a fresh link should land on something to edit.
+      - key: SEED_NEW_ROOMS
+        value: 'true'
+
+  - type: web
+    name: penpal-web
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      # Baked into the bundle at build time by Vite. Public by nature — no
+      # key may ever be exposed here (design D43).
+      - key: VITE_WS_URL
+        value: wss://penpal-relay.onrender.com
+      - key: VITE_AGENT_URL
+        value: https://penpal-agent.onrender.com
+    routes:
+      # Single-page app: every path serves index.html so ?room= links work.
+      - type: rewrite
+        source: /*
+        destination: /index.html

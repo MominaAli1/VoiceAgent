@@ -30,6 +30,16 @@ function dismissSplash() {
     splashEl.style.display = 'none';
     appEl.classList.remove('app-hidden');
     appEl.classList.add('app-visible');
+    // The editor mounts while the app is still hidden, so its own autofocus
+    // is lost and the document opens with no caret — you had to click before
+    // you could type. Focus on the next frame, once the app is laid out.
+    // Tiptap's focus() command alone does nothing here (measured: the editor
+    // was created in a display:none container), so focus the DOM node first
+    // and then use the command to place the caret at the end.
+    requestAnimationFrame(() => {
+      editor.view.dom.focus();
+      editor.commands.focus('end');
+    });
   }, 400);
 }
 
